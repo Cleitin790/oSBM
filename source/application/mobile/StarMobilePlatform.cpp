@@ -1182,6 +1182,7 @@ private:
       for (auto const& pair : loadLauncherLangFile(localePath).pairs())
         m_launcherTranslations[pair.first] = pair.second;
     }
+    setLauncherStaticTranslations(m_launcherTranslations);
   }
 
   String launcherText(String const& key, String const& fallback = {}) const {
@@ -1348,7 +1349,7 @@ private:
       m_perfFpsCap = 60;
 #endif
 
-    String savedLocale = config.queryString("launcherUi.locale", SystemLocaleMarker);
+    String savedLocale = config.queryString("launcherUi.locale", "pt_BR");
     state.locale = savedLocale.empty() || savedLocale == SystemLocaleMarker ? String(SystemLocaleMarker) : normalizeLauncherLocale(savedLocale);
     state.systemLocale = loadPreferredLauncherLocale();
     reloadLauncherLocalization(state.locale);
@@ -2148,7 +2149,7 @@ private:
     MobileTouchElement element;
     element.kind = MobileTouchElementKind::Button;
     element.action = quickSlotAction();
-    element.label = "Atalho";
+    element.label = launcherText("shortcut.label", "Shortcut");
     element.size = .9f;
     element.position = {.50f, .50f};
     element.pressMode = MobileTouchPressMode::Hold;
@@ -2159,9 +2160,9 @@ private:
     if (action.kind != MobileTouchActionKind::QuickSlot) return;
     ImGui::PushID(id.utf8Ptr());
     int slot = action.quickSlot + 1;
-    if (ImGui::SliderInt("Bar slot (main hand)", &slot, 1, 10)) action.quickSlot = slot - 1;
-    ImGui::Checkbox("Use while held", &action.quickUse);
-    ImGui::TextWrapped("Put the chosen item in the left/main hand position of this slot in your current hotbar group. Off: equip only. On: equip and use while held; release stops use. The item stays equipped. Enable Q1/Q2/Q3 and rename them in the layout editor.");
+    if (ImGui::SliderInt(launcherText("shortcut.slot", "Bar slot (main hand)").utf8Ptr(), &slot, 1, 10)) action.quickSlot = slot - 1;
+    ImGui::Checkbox(launcherText("shortcut.hold", "Use while held").utf8Ptr(), &action.quickUse);
+    ImGui::TextWrapped(launcherText("shortcut.help", "Put the chosen item in the left/main hand position of this slot in your current hotbar group. Off: equip only. On: equip and use while held; release stops use. The item stays equipped. Enable Q1/Q2/Q3 and rename them in the layout editor.").utf8Ptr());
     ImGui::PopID();
   }
 
@@ -2176,11 +2177,11 @@ private:
   }
 
   void renderTouchPressModeCombo(MobileTouchElement& element) {
-    std::vector<pair<char const*, MobileTouchPressMode>> choices{
-      {launcherText("touchManager.pressMode.single", "Single press").utf8Ptr(), MobileTouchPressMode::SinglePress},
-      {launcherText("touchManager.pressMode.repeat", "Rapid fire / repeat").utf8Ptr(), MobileTouchPressMode::Repeat},
-      {launcherText("touchManager.pressMode.hold", "Hold").utf8Ptr(), MobileTouchPressMode::Hold},
-      {launcherText("touchManager.pressMode.toggle", "Toggle").utf8Ptr(), MobileTouchPressMode::Toggle}
+    std::vector<pair<String, MobileTouchPressMode>> choices{
+      {launcherText("touchManager.pressMode.single", "Single press"), MobileTouchPressMode::SinglePress},
+      {launcherText("touchManager.pressMode.repeat", "Rapid fire / repeat"), MobileTouchPressMode::Repeat},
+      {launcherText("touchManager.pressMode.hold", "Hold"), MobileTouchPressMode::Hold},
+      {launcherText("touchManager.pressMode.toggle", "Toggle"), MobileTouchPressMode::Toggle}
     };
     int index = 0;
     for (int i = 0; i < (int)choices.size(); ++i) {
@@ -2189,10 +2190,10 @@ private:
         break;
       }
     }
-    if (ImGui::BeginCombo(launcherText("touchManager.buttonBehavior", "Button behavior").utf8Ptr(), choices[index].first)) {
+    if (ImGui::BeginCombo(launcherText("touchManager.buttonBehavior", "Button behavior").utf8Ptr(), choices[index].first.utf8Ptr())) {
       for (int i = 0; i < (int)choices.size(); ++i) {
         bool selected = index == i;
-        if (ImGui::Selectable(choices[i].first, selected))
+        if (ImGui::Selectable(choices[i].first.utf8Ptr(), selected))
           element.pressMode = choices[i].second;
         if (selected)
           ImGui::SetItemDefaultFocus();
@@ -2857,20 +2858,20 @@ private:
       ImGui::Text("%s: %s", launcherText("touchPreview.selectedLabel", "Selected").utf8Ptr(), selected.label.utf8Ptr());
       ImGui::SliderFloat(launcherText("touchPreview.selectedSize", "Selected size").utf8Ptr(), &selected.size, 0.45f, 2.4f);
       ImGui::SliderFloat(launcherText("touchManager.elementOpacity", "Element opacity").utf8Ptr(), &selected.opacity, 0.0f, 1.0f);
-      ImGui::Checkbox("Enabled", &selected.enabled);
+      ImGui::Checkbox(launcherText("common.enabledControl", "Enabled").utf8Ptr(), &selected.enabled);
       if (selected.kind == MobileTouchElementKind::Button) {
         if (state.touchLabelBufferElementId != selected.id) {
           state.touchLabelBufferElementId = selected.id;
           std::snprintf(state.touchLabelBuffer, sizeof(state.touchLabelBuffer), "%s", selected.label.utf8Ptr());
         }
-        if (ImGui::InputText("Label", state.touchLabelBuffer, sizeof(state.touchLabelBuffer))) selected.label = String(state.touchLabelBuffer).trim();
-        renderTouchActionCombo(state, "Action", selected.action, selected.id + ":preview");
+        if (ImGui::InputText(launcherText("touchManager.displayedText", "Label").utf8Ptr(), state.touchLabelBuffer, sizeof(state.touchLabelBuffer))) selected.label = String(state.touchLabelBuffer).trim();
+        renderTouchActionCombo(state, launcherText("touchManager.interaction", "Action").utf8Ptr(), selected.action, selected.id + ":preview");
       }
       if (selected.kind == MobileTouchElementKind::PerformanceCounter)
         perfCounterModeCombo(selected.perfCounterMode);
     }
-    if (ImGui::Button("Add shortcut")) addQuickShortcut(state);
-    if (ImGui::Button("Save layout")) persistLauncherState(state);
+    if (ImGui::Button(launcherText("shortcut.add", "Add shortcut").utf8Ptr())) addQuickShortcut(state);
+    if (ImGui::Button(launcherText("shortcut.save", "Save layout").utf8Ptr())) persistLauncherState(state);
     ImGui::SameLine();
     if (ImGui::Button(launcherText("common.done", "Done").utf8Ptr()))
       state.touchPreviewOpen = false;
@@ -2935,6 +2936,7 @@ private:
 
     std::vector<pair<String, String>> localeChoices{
       {launcherText("uiSettings.language.system", "System default"), SystemLocaleMarker},
+      {launcherText("uiSettings.language.portugueseBrazil", "Portuguese (Brazil)"), String("pt_BR")},
       {launcherText("uiSettings.language.english", "English"), String("en_US")},
       {launcherText("uiSettings.language.simplifiedChinese", "ç®€ä½“ä¸­æ–‡"), String("zh_CN")}
     };
@@ -3344,11 +3346,11 @@ private:
     ImGui::Checkbox(launcherText("touchManager.invertGyroY", "Invert gyro Y axis").utf8Ptr(), &state.touchConfig.gyroInvertY);
     ImGui::EndDisabled();
 
-    if (ImGui::Button("Add shortcut")) {
+    if (ImGui::Button(launcherText("shortcut.add", "Add shortcut").utf8Ptr())) {
       addQuickShortcut(state);
       state.touchPreviewOpen = true;
     }
-    ImGui::TextWrapped("Add as many buttons as fit your screen. A shortcut links to the main-hand item in a hotbar slot; choose its slot in the editor. Changes apply only after Save.");
+    ImGui::TextWrapped(launcherText("shortcut.addHint", "Add as many buttons as fit your screen. A shortcut links to the main-hand item in a hotbar slot; choose its slot in the editor. Changes apply only after Save.").utf8Ptr());
 
     if (ImGui::Button(launcherText("touchManager.newButton", "New Button").utf8Ptr())) {
       state.newTouchButtonPopup = true;
@@ -3411,20 +3413,20 @@ private:
             std::snprintf(state.touchLabelBuffer, sizeof(state.touchLabelBuffer), "%s", element.label.utf8Ptr());
           }
           if (element.kind == MobileTouchElementKind::Button) {
-            if (ImGui::Button("Duplicate button")) duplicateControl = i;
+            if (ImGui::Button(launcherText("shortcut.duplicate", "Duplicate button").utf8Ptr())) duplicateControl = i;
             auto builtins = defaultTouchElements();
             bool builtin = std::any_of(builtins.begin(), builtins.end(), [&](auto const& e) { return e.id == element.id; });
             if (!builtin) {
               ImGui::SameLine();
-              if (ImGui::Button("Delete...")) ImGui::OpenPopup("Delete custom control");
-              if (ImGui::BeginPopupModal("Delete custom control", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                ImGui::TextWrapped("Remove this custom control? Undo layout switch can restore it before saving.");
-                if (ImGui::Button("Remove")) { deleteControl = i; ImGui::CloseCurrentPopup(); }
+              if (ImGui::Button(launcherText("shortcut.delete", "Delete...").utf8Ptr())) ImGui::OpenPopup(launcherText("shortcut.deleteTitle", "Delete custom control").utf8Ptr());
+              if (ImGui::BeginPopupModal(launcherText("shortcut.deleteTitle", "Delete custom control").utf8Ptr(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::TextWrapped(launcherText("shortcut.deleteConfirm", "Remove this custom control? Undo layout switch can restore it before saving.").utf8Ptr());
+                if (ImGui::Button(launcherText("common.remove", "Remove").utf8Ptr())) { deleteControl = i; ImGui::CloseCurrentPopup(); }
                 ImGui::SameLine();
-                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                if (ImGui::Button(launcherText("common.cancel", "Cancel").utf8Ptr())) ImGui::CloseCurrentPopup();
                 ImGui::EndPopup();
               }
-            } else ImGui::TextDisabled("Built-in control: disable it to hide it.");
+            } else ImGui::TextDisabled(launcherText("shortcut.builtinHint", "Built-in control: disable it to hide it.").utf8Ptr());
             if (ImGui::InputText(launcherText("touchManager.displayedText", "Displayed text").utf8Ptr(), state.touchLabelBuffer, sizeof(state.touchLabelBuffer)))
               element.label = String(state.touchLabelBuffer).trim();
           }
@@ -3639,7 +3641,7 @@ private:
     beginLauncherContentArea("LauncherContent", displaySize);
     // Visible build identity: makes "which binary am I actually running?"
     // answerable at a glance when iterating over slow transfer channels.
-    ImGui::TextDisabled("Build %s %s", __DATE__, __TIME__);
+    ImGui::TextDisabled(launcherText("launcher.build", "Build %s %s").utf8Ptr(), __DATE__, __TIME__);
 
     auto runLauncherAction = [this, &state](String const& actionName, std::function<void()> const& fn) {
       try {

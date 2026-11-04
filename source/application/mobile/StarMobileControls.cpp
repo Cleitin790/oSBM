@@ -78,7 +78,11 @@ String actionName(MobileTouchAction const& action) {
       return launcherTextStatic("touchAction.scrollUp", "Scroll Up");
     case MobileTouchActionKind::MouseWheelDown:
       return launcherTextStatic("touchAction.scrollDown", "Scroll Down");
-    case MobileTouchActionKind::QuickSlot: return strf("Bar {}{}", action.quickSlot + 1, action.quickUse ? " / hold to use" : "");
+    case MobileTouchActionKind::QuickSlot: {
+      String label = strf("{} {}", launcherTextStatic("shortcut.bar", "Bar"), action.quickSlot + 1);
+      if (action.quickUse) label += strf(" / {}", launcherTextStatic("shortcut.holdSuffix", "hold to use"));
+      return label;
+    }
     case MobileTouchActionKind::MiningModeToggle: return launcherTextStatic("touchAction.miningMode", "Free / directional mining");
     case MobileTouchActionKind::TargetLockToggle: return launcherTextStatic("touchAction.targetLock", "Lock / unlock target");
     case MobileTouchActionKind::TargetLockNext: return launcherTextStatic("touchAction.targetNext", "Next target");

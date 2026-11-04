@@ -1,3 +1,4 @@
+#include <mutex>
 #include "StarApplication.hpp"
 #include "StarApplicationController.hpp"
 #include "StarByteArray.hpp"
@@ -90,6 +91,8 @@ String normalizeLauncherLocale(String locale) {
       region = "CN";
     else if (language == "en")
       region = "US";
+    else if (language == "pt")
+      region = "BR";
   }
 
   return region.empty() ? language : strf("{}_{}", language, region);
@@ -124,10 +127,19 @@ StringMap<String> loadLauncherLangFile(String const& path) {
   return out;
 }
 
+namespace {
+std::mutex LauncherTranslationMutex;
+StringMap<String> ActiveLauncherTranslations;
+}
+
+void setLauncherStaticTranslations(StringMap<String> translations) {
+  std::lock_guard<std::mutex> lock(LauncherTranslationMutex);
+  ActiveLauncherTranslations = std::move(translations);
+}
+
 String launcherTextStatic(String const& key, String const& fallback) {
-  static StringMap<String> translations = loadLauncherLangFile(File::relativeTo(LauncherLangDirectory, strf("{}.lang", DefaultLauncherLocale)));
-  if (auto value = translations.ptr(key))
-    return *value;
+  std::lock_guard<std::mutex> lock(LauncherTranslationMutex);
+  if (auto value = ActiveLauncherTranslations.ptr(key)) return *value;
   return fallback.empty() ? key : fallback;
 }
 

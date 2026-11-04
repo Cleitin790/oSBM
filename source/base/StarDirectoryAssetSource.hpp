@@ -26,7 +26,7 @@ public:
   void setMetadata(JsonObject metadata);
 
 private:
-  void scanAll(String const& assetDirectory, StringList& output) const;
+  void scanAll(String const& assetDirectory, StringList& output, function<bool(String const&)> const& shouldIgnore) const;
 
   String m_baseDirectory;
   List<String> m_ignorePatterns;

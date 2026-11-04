@@ -1,6 +1,7 @@
 #include "StarDirectoryAssetSource.hpp"
 #include "StarFile.hpp"
 #include "StarJsonExtra.hpp"
+#include <re2/re2.h>
 
 namespace Star {
 
@@ -26,7 +27,25 @@ DirectoryAssetSource::DirectoryAssetSource(String const& baseDirectory, StringLi
   m_ignorePatterns.append("^/_metadata$");
   m_ignorePatterns.append("^/\\.metadata$");
 
-  scanAll("/", m_assetPaths);
+  // Reuse a pattern once reached, while preserving lazy validation and the
+  // original short-circuit order. Keep this cache local to this one scan.
+  List<shared_ptr<re2::RE2>> compiled;
+  compiled.resize(m_ignorePatterns.size());
+  auto shouldIgnore = [&](String const& path) {
+    for (size_t i = 0; i < m_ignorePatterns.size(); ++i) {
+      auto& regex = compiled[i];
+      if (!regex) {
+        re2::RE2::Options options;
+        options.set_case_sensitive(false);
+        regex = make_shared<re2::RE2>(m_ignorePatterns[i].utf8(), options);
+        if (!regex->ok())
+          throw StringException::format("Invalid regex pattern '{}': {}", m_ignorePatterns[i], regex->error());
+      }
+      if (re2::RE2::PartialMatch(path.utf8(), *regex)) return true;
+    }
+    return false;
+  };
+  scanAll("/", m_assetPaths, shouldIgnore);
 
   m_assetPaths.sort();
 }
@@ -71,21 +90,14 @@ void DirectoryAssetSource::setMetadata(JsonObject metadata) {
   }
 }
 
-void DirectoryAssetSource::scanAll(String const& assetDirectory, StringList& output) const {
-  auto shouldIgnore = [this](String const& assetPath) {
-    for (auto const& pattern : m_ignorePatterns) {
-      if (assetPath.regexMatch(pattern, false, false))
-        return true;
-    }
-    return false;
-  };
-
+void DirectoryAssetSource::scanAll(String const& assetDirectory, StringList& output,
+    function<bool(String const&)> const& shouldIgnore) const {
   // path must be passed in including the trailing '/'
   String fsDirectory = toFilesystem(assetDirectory);
   for (auto entry : File::dirList(fsDirectory)) {
     String assetPath = assetDirectory + entry.first;
     if (entry.second) {
-      scanAll(assetPath + "/", output);
+      scanAll(assetPath + "/", output, shouldIgnore);
     } else {
       if (!shouldIgnore(assetPath))
         output.append(std::move(assetPath));

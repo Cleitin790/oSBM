@@ -24,6 +24,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The whitespace check compares the PR merge commit with its parent.
+          fetch-depth: 2
       - name: Testes puros sem assets
         shell: bash
         run: |

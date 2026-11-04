@@ -1492,7 +1492,7 @@ private:
       {launcherText("touchActionChoice.scrollDown", "Scroll Down"), wheelAction(false)},
       {launcherText("touchActionChoice.quickSlot", "Quick bar shortcut"), quickSlotAction()},
       {launcherText("touchActionChoice.miningMode", "Free / directional mining"), miningModeAction()},
-      {launcherText("touchActionChoice.targetLock", "Lock / unlock target"), targetLockAction()},
+      {launcherText("touchActionChoice.targetLock", "Pause / resume automatic target lock"), targetLockAction()},
       {launcherText("touchActionChoice.targetNext", "Next target"), targetLockAction(true)},
       {launcherText("touchActionChoice.swapAimHand", "Swap aim hand"), touchHandSwapAction()},
       {launcherText("touchActionChoice.gyroToggle", "Gyro Toggle"), gyroToggleAction()},
@@ -3264,11 +3264,11 @@ private:
           "What single-finger and two-finger taps/holds do. Defaults match the classic behavior (aim/attack, secondary aim/use). Pick No Action to disable a gesture.").utf8Ptr());
       ImGui::Unindent();
     }
-    ImGui::Checkbox(launcherText("touchManager.lockOn", "Enable optional target lock").utf8Ptr(), &state.touchConfig.lockOnEnabled);
+    ImGui::Checkbox(launcherText("touchManager.lockOn", "Enable automatic target lock").utf8Ptr(), &state.touchConfig.lockOnEnabled);
     if (state.touchConfig.lockOnEnabled) {
       ImGui::Checkbox(launcherText("touchManager.lockBoss", "Prefer bosses when acquiring a target").utf8Ptr(), &state.touchConfig.lockOnPreferBoss);
       ImGui::SliderFloat(launcherText("touchManager.lockRange", "Target lock range (tiles)").utf8Ptr(), &state.touchConfig.lockOnRange, 8, 80);
-      ImGui::TextWrapped("%s", launcherText("touchManager.lockHint", "Lock keeps the chosen enemy until you unlock, change weapon, open a menu or lose sight/range. Next explicitly switches target. Boss priority uses special health bars; mod bosses without this marker can still be locked manually. Weapons need the weapon item tag. Gamepad: remap Lock / unlock target and Next target.").utf8Ptr());
+      ImGui::TextWrapped("%s", launcherText("touchManager.lockHint", "Automatically finds a visible hostile with a weapon equipped. Replaces lost targets; recognized bosses have priority and keep focus. Lock pauses/resumes; Next selects another target. Menus, tools, walls and physical mouse suspend assistance. No automatic firing. Weapons need the weapon item tag.").utf8Ptr());
     }
     String attackLabels[] = {
       launcherText("touchManager.aimOnly", "Aim only"),

@@ -865,6 +865,31 @@ public:
     }
   }
 
+  float overlayOpacity() {
+    int64_t now = Time::monotonicMilliseconds();
+    if (!m_fingers.empty() || !m_lastActivityMs) m_lastActivityMs = now;
+    return std::clamp(m_config.opacity, 0.0f, 1.0f) * TouchInput::idleFade((float)(now - m_lastActivityMs));
+  }
+
+  void renderShortcutIcons(Application& application) {
+    m_shortcutRendered.assign(m_elements.size(), false);
+    if (!m_config.enabled || m_context != 0 || application.touchInputMode() != 0) return;
+    float opacity = overlayOpacity();
+    Vec2F scale = inputCanvasSize().piecewiseDivide(Vec2F(*m_windowSize).piecewiseMax(Vec2F::filled(1)));
+    for (size_t i = 0; i < m_elements.size(); ++i) {
+      auto const& element = m_elements[i];
+      if (!element.enabled || element.opacity <= 0 || element.kind != MobileTouchElementKind::Button
+          || element.action.kind != MobileTouchActionKind::QuickSlot) continue;
+      Vec2F center = elementCenter(element);
+      auto canvas = inputCanvasSize();
+      auto aligned = TouchInput::shortcutCenter({center[0], center[1]}, {(float)(*m_windowSize)[0], (float)(*m_windowSize)[1]},
+          {canvas[0], canvas[1]}, {m_safeAreaPtr ? (float)m_safeAreaPtr->left : 0, m_safeAreaPtr ? (float)m_safeAreaPtr->top : 0});
+      center = {aligned[0], aligned[1]};
+      float radius = controlRadius() * std::clamp(element.size, .45f, 2.4f) * .55f * std::min(scale[0], scale[1]);
+      m_shortcutRendered[i] = application.renderTouchShortcut({(unsigned)element.action.quickSlot, center, radius, opacity * element.opacity});
+    }
+  }
+
   void drawOverlay(float fps, bool directionalMining) {
     if (!m_config.enabled || m_context != 0)
       return;
@@ -907,16 +932,7 @@ public:
     // inversion result approaches the background and the overlay fades away.
     // (The inversion blend keys off source RGB, ignoring alpha coverage, so it
     // suits solid shapes; text is handled separately with an outline below.)
-    float op = std::clamp(m_config.opacity, 0.0f, 1.0f);
-    {
-      // Idle fade: after a few seconds with no finger on the screen the
-      // controls dim so they stop competing with the game, and snap back to
-      // full strength the moment you touch again.
-      int64_t nowMs = Time::monotonicMilliseconds();
-      if (!m_fingers.empty() || m_lastActivityMs == 0)
-        m_lastActivityMs = nowMs;
-      op *= TouchInput::idleFade((float)(nowMs - m_lastActivityMs));
-    }
+    float op = overlayOpacity();
     auto contrast = [&op](float c) { return 0.5f + (c - 0.5f) * op; };
     auto contrastColor = [&contrast](float r, float g, float b) {
       return IM_COL32((int)std::lround(contrast(r) * 255.0f),
@@ -940,6 +956,7 @@ public:
     // scenery. Draw it before the inversion pass; zero opacity stays invisible.
     // Floating sticks use the same origin as their ring, not the resting spot.
     for (auto const& element : m_elements) {
+      if (element.action.kind == MobileTouchActionKind::QuickSlot) continue;
       if (!element.enabled || element.opacity <= 0 || element.kind == MobileTouchElementKind::PerformanceCounter)
         continue;
       if (!m_config.lockOnEnabled && (element.action.kind == MobileTouchActionKind::TargetLockToggle
@@ -1026,7 +1043,15 @@ public:
             || (element.action.kind == MobileTouchActionKind::GyroToggle && m_gyroAvailable && m_config.gyroEnabled && m_gyroRuntimeEnabled);
         if (element.action.kind == MobileTouchActionKind::MiningModeToggle)
           held = directionalMining;
-        drawButton(draw, ip(center), drawRadius * 0.55f, held, element.label.utf8Ptr(), base, fill, thickness, labels, cache, cache.icon);
+        bool itemIcon = index < m_shortcutRendered.size() && m_shortcutRendered[index];
+        drawButton(draw, ip(center), drawRadius * .55f, itemIcon ? false : held,
+            itemIcon ? "" : element.label.utf8Ptr(), base, fill, thickness, labels, cache, itemIcon ? ButtonIcon::None : cache.icon);
+        if (itemIcon) {
+          ImVec2 pos = ip(center);
+          ImVec2 textSize = ImGui::CalcTextSize(element.label.utf8Ptr());
+          labels.push_back({ImVec2(pos.x - textSize.x * .5f, pos.y + drawRadius * .60f), element.label.utf8Ptr()});
+          if (held) draw->AddCircle(pos, drawRadius * .65f, fill, 48, thickness);
+        }
         char const* badge = element.action.kind == MobileTouchActionKind::MiningModeToggle
             ? (directionalMining ? "DIR" : "LIVRE")
             : element.action.kind == MobileTouchActionKind::TouchHandSwap
@@ -2482,6 +2507,7 @@ private:
   StringMap<int64_t> m_pulsedActionReleaseMs;
   StringSet m_keyActionOwners;
   HashMap<Key, unsigned> m_keyHoldCounts;
+  std::vector<bool> m_shortcutRendered;
   StringMap<MobileTouchAction> m_quickSlotOwners;
   StringSet m_mouseActionOwners;
   HashMap<MouseButton, unsigned> m_mouseHoldCounts;
@@ -3189,6 +3215,7 @@ bool MobileTouchInputAdapter::gyroSensorRequested() const { return m_impl->gyroS
 void MobileTouchInputAdapter::setGyroInput(std::array<float, 3> const& data, bool hasData, SDL_DisplayOrientation orientation) { m_impl->setGyroInput(data, hasData, orientation); }
 bool MobileTouchInputAdapter::processSdlEvent(SDL_Event const& event) { return m_impl->processSdlEvent(event); }
 void MobileTouchInputAdapter::cancelAll() { m_impl->cancelAll(); }
+void MobileTouchInputAdapter::renderShortcutIcons(Application& application) { m_impl->renderShortcutIcons(application); }
 void MobileTouchInputAdapter::drawOverlay(float fps, bool directionalMining) { m_impl->drawOverlay(fps, directionalMining); }
 bool MobileTouchInputAdapter::overlayEnabled() const { return m_impl->overlayEnabled(); }
 

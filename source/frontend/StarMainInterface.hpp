@@ -115,6 +115,7 @@ public:
   Vec2F rawCursorWorldPosition() const;
 
 #ifdef STAR_PLATFORM_MOBILE
+  void renderTouchShortcut(TouchShortcutVisual const& visual);
   bool directionalMiningEnabled() const { return m_directionalMining; }
   void setTouchItemAction(TouchInput::ItemAction action) { m_paneManager.setTouchItemAction(action); }
   TouchInput::ItemAction touchItemAction() const { return m_paneManager.touchItemAction(); }

@@ -257,6 +257,12 @@ struct TextInputEvent {
 
 #ifdef STAR_PLATFORM_MOBILE
 enum class TargetLockCommand { Toggle, Next, Cancel };
+struct TouchShortcutVisual {
+  unsigned index = 0;
+  Vec2F center;
+  float radius = 0;
+  float opacity = 0;
+};
 struct MiningModeEvent {};
 struct QuickSlotEvent {
   unsigned index = 0;

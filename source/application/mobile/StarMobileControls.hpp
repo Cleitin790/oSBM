@@ -227,6 +227,8 @@ JsonArray jsonFromGamepadBindings(std::vector<MobileGamepadBinding> const& bindi
 MobileGamepadBinding gamepadBindingFromJson(Json const& json, MobileGamepadBinding def);
 std::vector<MobileGamepadBinding> gamepadBindingsFromConfig(Json const& config);
 
+class Application;
+
 class MobileTouchInputAdapter {
 public:
   explicit MobileTouchInputAdapter(Vec2U* windowSize, Vec2U* renderCanvasSize = nullptr, float* displayScale = nullptr, SafeAreaInsets* safeArea = nullptr);
@@ -243,6 +245,7 @@ public:
   void setGyroInput(std::array<float, 3> const& data, bool hasData, SDL_DisplayOrientation orientation);
   bool processSdlEvent(SDL_Event const& event);
   void cancelAll();
+  void renderShortcutIcons(Application& application);
   void drawOverlay(float fps, bool directionalMining = false);
   bool overlayEnabled() const;
 

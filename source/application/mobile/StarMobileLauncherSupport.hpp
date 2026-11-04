@@ -21,6 +21,7 @@ void androidLogInfo(char const* fmt, ...);
 String normalizeLauncherLocale(String locale);
 String parseLauncherLangLine(String const& line, StringMap<String>& out);
 StringMap<String> loadLauncherLangFile(String const& path);
+void setLauncherStaticTranslations(StringMap<String> translations);
 String launcherTextStatic(String const& key, String const& fallback = {});
 String loadPreferredLauncherLocale();
 String resolveLauncherLocaleChoice(String const& localeChoice);

@@ -1,0 +1,46 @@
+name: Verificar controles touch
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/touch-layout-check.yml'
+      - '.github/workflows/android.yml'
+      - 'source/application/mobile/**'
+      - 'source/core/StarTouchLayout.hpp'
+      - 'source/core/StarTouchInput.hpp'
+      - 'source/test/touch*'
+      - 'scripts/check_launcher_pt_br.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: touch-layout-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  input_tests:
+    name: Geometria, entrada e traduções
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Testes puros sem assets
+        shell: bash
+        run: |
+          mkdir -p /tmp/osbm-touch-tests
+          for name in touch_layout touch_input touch_ux gamepad_input directional_mining target_lock interface_scale; do
+            g++ -std=c++17 -O2 -Wall -Wextra -Werror -I source/core -I source/windowing \
+              "source/test/${name}_test.cpp" -o "/tmp/osbm-touch-tests/${name}"
+            "/tmp/osbm-touch-tests/${name}"
+          done
+          python3 scripts/check_launcher_pt_br.py
+      - name: Verificar espaços no diff
+        run: git diff --check HEAD^ HEAD
+  android_debug:
+    name: APK Debug ARM64
+    needs: input_tests
+    uses: ./.github/workflows/android.yml
+    with:
+      build_type: Debug
+      arch: arm64
+      system_allocator: true

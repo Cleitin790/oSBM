@@ -16,6 +16,16 @@ int main() {
     gesture.state = Gesture::State::Consumed;
     check(!gesture.tap()); check(!gesture.move(100,100,10));
   }
+  // The full window, safe-area offset and render canvas may all differ.
+  for (float scale : {.25f, .5f, 1.f, 2.f}) {
+    auto top = shortcutCenter({0,0}, {2340,1080}, {2340*scale,1080*scale}, {0,0});
+    check(top[0] == 0 && top[1] == 1080*scale);
+    auto bottom = shortcutCenter({2340,1080}, {2340,1080}, {2340*scale,1080*scale}, {0,0});
+    check(bottom[0] == 2340*scale && bottom[1] == 0);
+    auto cutout = shortcutCenter({100,200}, {2340,1080}, {2340*scale,1080*scale}, {80,20});
+    check(std::abs(cutout[0] - 180*scale) < .01f);
+    check(std::abs(cutout[1] - 860*scale) < .01f);
+  }
   using Edge = HeldUse::Edge;
   for (int frames : {0,1,2,30,60,240}) {
     HeldUse use; check(use.update(true) == Edge::None);

@@ -723,6 +723,32 @@ void MainInterface::handleInteractAction(InteractAction interactAction) {
 }
 
 #ifdef STAR_PLATFORM_MOBILE
+void MainInterface::renderTouchShortcut(TouchShortcutVisual const& visual) {
+  auto inventory = m_client->mainPlayer()->inventory();
+  ItemPtr item;
+  if (visual.index < inventory->customBarIndexes())
+    if (auto slot = inventory->customBarPrimarySlot((CustomBarIndex)visual.index)) item = inventory->itemsAt(*slot);
+  float opacity = std::clamp(visual.opacity, 0.0f, 1.0f);
+  Vec4B tint(255, 255, 255, (uint8_t)(255 * opacity));
+  if (item && item->count()) {
+    auto icons = item->iconDrawables();
+    auto bounds = Drawable::boundBoxAll(icons, true);
+    float extent = std::max(bounds.width(), bounds.height());
+    if (extent > 0 && std::isfinite(extent)) {
+      Drawable::translateAll(icons, -bounds.center());
+      float scale = visual.radius * 1.4f / extent;
+      for (auto icon : icons) m_guiContext->drawDrawable(std::move(icon), visual.center, scale, tint);
+    }
+  }
+  m_guiContext->setFontSize(std::clamp(visual.radius * .35f, 5.0f, 14.0f));
+  m_guiContext->setFontColor(tint);
+  if (!item || !item->count())
+    m_guiContext->renderText("--", TextPositioning(visual.center, HorizontalAnchor::HMidAnchor, VerticalAnchor::VMidAnchor));
+  else if (item->count() > 1)
+    m_guiContext->renderText(actionWheelShortCount(item->count()), TextPositioning(visual.center + Vec2F(visual.radius * .65f, -visual.radius * .65f), HorizontalAnchor::RightAnchor, VerticalAnchor::BottomAnchor));
+  m_guiContext->clearTextStyle();
+}
+
 void MainInterface::finishQuickSlot() {
   if (m_quickUse.cancel() == TouchInput::HeldUse::Edge::Release) m_client->mainPlayer()->endPrimaryFire();
   m_quickSlotOwner = {};

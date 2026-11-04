@@ -525,6 +525,13 @@ void ClientApplication::windowChanged(WindowMode windowMode, Vec2U screenSize) {
 }
 
 #ifdef STAR_PLATFORM_MOBILE
+bool ClientApplication::renderTouchShortcut(TouchShortcutVisual const& visual) {
+  if (touchInputMode() != 0 || !m_mainInterface || !m_mainInterface->hudVisible()
+      || !m_errorScreen->accepted() || !m_cinematicOverlay->completed()) return false;
+  m_mainInterface->renderTouchShortcut(visual);
+  return true;
+}
+
 bool ClientApplication::touchDirectionalMining() const {
   return m_mainInterface && m_mainInterface->directionalMiningEnabled();
 }

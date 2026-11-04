@@ -2134,6 +2134,27 @@ private:
     ImGui::PopID();
   }
 
+  void appendTouchControl(LauncherState& state, MobileTouchElement element) {
+    m_previousTouchLayout = JsonObject{{"elements", jsonFromTouchElements(state.touchElements)}};
+    size_t sequence = 1;
+    do { element.id = strf("custom{}", sequence++); }
+    while (std::any_of(state.touchElements.begin(), state.touchElements.end(), [&](auto const& old) { return old.id == element.id; }));
+    element.enabled = true;
+    state.touchElements.push_back(std::move(element));
+    state.selectedTouchElement = (int)state.touchElements.size() - 1;
+  }
+
+  void addQuickShortcut(LauncherState& state) {
+    MobileTouchElement element;
+    element.kind = MobileTouchElementKind::Button;
+    element.action = quickSlotAction();
+    element.label = "Atalho";
+    element.size = .9f;
+    element.position = {.50f, .50f};
+    element.pressMode = MobileTouchPressMode::Hold;
+    appendTouchControl(state, std::move(element));
+  }
+
   void renderQuickSlotOptions(MobileTouchAction& action, String const& id) {
     if (action.kind != MobileTouchActionKind::QuickSlot) return;
     ImGui::PushID(id.utf8Ptr());
@@ -2828,6 +2849,7 @@ private:
         + ImGui::GetFrameHeightWithSpacing() * 2.0f
         + ImGui::GetFrameHeight()
         + (selectedIsPerfCounter ? ImGui::GetFrameHeightWithSpacing() : 0.0f);
+    toolbarHeight = std::min(displaySize.y * .48f, std::max(toolbarHeight, 210.0f));
     ImGui::BeginChild("TouchPreviewToolbar", ImVec2(std::min(520.0f, displaySize.x - 32.0f), toolbarHeight), true);
     ImGui::TextUnformatted(launcherText("touchPreview.title", "Touch Layout Preview").utf8Ptr());
     if (state.selectedTouchElement >= 0 && state.selectedTouchElement < (int)state.touchElements.size()) {
@@ -2835,9 +2857,21 @@ private:
       ImGui::Text("%s: %s", launcherText("touchPreview.selectedLabel", "Selected").utf8Ptr(), selected.label.utf8Ptr());
       ImGui::SliderFloat(launcherText("touchPreview.selectedSize", "Selected size").utf8Ptr(), &selected.size, 0.45f, 2.4f);
       ImGui::SliderFloat(launcherText("touchManager.elementOpacity", "Element opacity").utf8Ptr(), &selected.opacity, 0.0f, 1.0f);
+      ImGui::Checkbox("Enabled", &selected.enabled);
+      if (selected.kind == MobileTouchElementKind::Button) {
+        if (state.touchLabelBufferElementId != selected.id) {
+          state.touchLabelBufferElementId = selected.id;
+          std::snprintf(state.touchLabelBuffer, sizeof(state.touchLabelBuffer), "%s", selected.label.utf8Ptr());
+        }
+        if (ImGui::InputText("Label", state.touchLabelBuffer, sizeof(state.touchLabelBuffer))) selected.label = String(state.touchLabelBuffer).trim();
+        renderTouchActionCombo(state, "Action", selected.action, selected.id + ":preview");
+      }
       if (selected.kind == MobileTouchElementKind::PerformanceCounter)
         perfCounterModeCombo(selected.perfCounterMode);
     }
+    if (ImGui::Button("Add shortcut")) addQuickShortcut(state);
+    if (ImGui::Button("Save layout")) persistLauncherState(state);
+    ImGui::SameLine();
     if (ImGui::Button(launcherText("common.done", "Done").utf8Ptr()))
       state.touchPreviewOpen = false;
     ImGui::EndChild();
@@ -3190,7 +3224,7 @@ private:
     }
     if (!m_previousTouchLayout.isNull() && ImGui::Button(launcherText("touchLayout.undo", "Undo layout switch").utf8Ptr())) {
       auto previous=touchElementsFromConfig(JsonObject{{"touch",JsonObject{{"elements",m_previousTouchLayout.getArray("elements")}}}});
-      TouchInput::mergeLayout(state.touchElements,previous,[](auto& old,auto const& value){old=value;});
+      state.touchElements = std::move(previous);
       state.touchLabelBufferElementId.clear(); state.touchPreviewOpen=true;
     }
     String scaleLabels[] = {launcherText("touchLayout.keepScale", "Keep current"),launcherText("touchLayout.autoScale", "Automatic"),
@@ -3289,7 +3323,7 @@ private:
     }
     ImGui::SliderFloat(launcherText("touchManager.aimDeadzone", "Aim deadzone").utf8Ptr(), &state.touchConfig.aimDeadzone, 0.0f, 0.6f);
     ImGui::SliderFloat(launcherText("touchManager.aimCurve", "Aim response curve").utf8Ptr(), &state.touchConfig.aimCurve, 0.5f, 3.0f);
-    ImGui::TextWrapped("%s", launcherText("touchManager.gesturesHelp", "Items: hold for right-click/tooltip, two fingers to quick transfer, drag to pick up and place. Lists: drag to scroll. Single block toggles Shift; L/R swaps the aim joystick hand.").utf8Ptr());
+    ImGui::TextWrapped("%s", launcherText("touchManager.gesturesHelp", "Items: hold to inspect; use Move / Info / 1 item / Half to manage stacks. Two fingers to quick transfer; drag to move. Lists: drag to scroll. Single block toggles Shift; L/R swaps the aim joystick hand.").utf8Ptr());
     ImGui::Checkbox(launcherText("touchManager.joystickAimCursor", "Enable joystick aim cursor").utf8Ptr(), &state.touchConfig.joystickAimCursorEnabled);
     ImGui::TextDisabled("%s", launcherText("touchManager.joystickAimCursorHint",
         "Shows the aim cursor while aiming with a joystick, from the touch-screen aim joystick or a physical controller.").utf8Ptr());
@@ -3309,6 +3343,12 @@ private:
     ImGui::Checkbox(launcherText("touchManager.invertGyroX", "Invert gyro X axis").utf8Ptr(), &state.touchConfig.gyroInvertX);
     ImGui::Checkbox(launcherText("touchManager.invertGyroY", "Invert gyro Y axis").utf8Ptr(), &state.touchConfig.gyroInvertY);
     ImGui::EndDisabled();
+
+    if (ImGui::Button("Add shortcut")) {
+      addQuickShortcut(state);
+      state.touchPreviewOpen = true;
+    }
+    ImGui::TextWrapped("Add as many buttons as fit your screen. A shortcut links to the main-hand item in a hotbar slot; choose its slot in the editor. Changes apply only after Save.");
 
     if (ImGui::Button(launcherText("touchManager.newButton", "New Button").utf8Ptr())) {
       state.newTouchButtonPopup = true;
@@ -3335,18 +3375,13 @@ private:
       if (ImGui::Button(launcherText("common.create", "Create").utf8Ptr(), ImVec2(140.0f, 0.0f))) {
         auto action = choices[state.newTouchActionIndex].second;
         MobileTouchElement element;
-        element.id = strf("custom{}", state.touchElements.size() + 1);
-        size_t sequence = state.touchElements.size() + 1;
-        while (std::any_of(state.touchElements.begin(), state.touchElements.end(), [&](auto const& old) { return old.id == element.id; }))
-          element.id = strf("custom{}", ++sequence);
         element.label = actionName(action);
         element.kind = MobileTouchElementKind::Button;
         element.enabled = true;
         element.position = {0.50f, 0.50f};
         element.size = state.newTouchButtonSize;
         element.action = action;
-        state.touchElements.push_back(element);
-        state.selectedTouchElement = (int)state.touchElements.size() - 1;
+        appendTouchControl(state, std::move(element));
         state.touchPreviewOpen = true;
         ImGui::CloseCurrentPopup();
       }
@@ -3358,6 +3393,7 @@ private:
 
     ImGui::Separator();
     float listHeight = std::max(240.0f, ImGui::GetContentRegionAvail().y - ImGui::GetStyle().ItemSpacing.y);
+    int duplicateControl = -1, deleteControl = -1;
     if (ImGui::BeginChild("TouchControlList", ImVec2(0.0f, listHeight), true, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
       for (int i = 0; i < (int)state.touchElements.size(); ++i) {
         auto& element = state.touchElements[i];
@@ -3375,6 +3411,20 @@ private:
             std::snprintf(state.touchLabelBuffer, sizeof(state.touchLabelBuffer), "%s", element.label.utf8Ptr());
           }
           if (element.kind == MobileTouchElementKind::Button) {
+            if (ImGui::Button("Duplicate button")) duplicateControl = i;
+            auto builtins = defaultTouchElements();
+            bool builtin = std::any_of(builtins.begin(), builtins.end(), [&](auto const& e) { return e.id == element.id; });
+            if (!builtin) {
+              ImGui::SameLine();
+              if (ImGui::Button("Delete...")) ImGui::OpenPopup("Delete custom control");
+              if (ImGui::BeginPopupModal("Delete custom control", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::TextWrapped("Remove this custom control? Undo layout switch can restore it before saving.");
+                if (ImGui::Button("Remove")) { deleteControl = i; ImGui::CloseCurrentPopup(); }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+              }
+            } else ImGui::TextDisabled("Built-in control: disable it to hide it.");
             if (ImGui::InputText(launcherText("touchManager.displayedText", "Displayed text").utf8Ptr(), state.touchLabelBuffer, sizeof(state.touchLabelBuffer)))
               element.label = String(state.touchLabelBuffer).trim();
           }
@@ -3410,6 +3460,16 @@ private:
       }
     }
     ImGui::EndChild();
+    if (duplicateControl >= 0) {
+      auto copy = state.touchElements[duplicateControl];
+      copy.position[0] = std::clamp(copy.position[0] + .06f, .03f, .97f);
+      copy.position[1] = std::clamp(copy.position[1] + .06f, .03f, .97f);
+      appendTouchControl(state, std::move(copy));
+    } else if (deleteControl >= 0) {
+      m_previousTouchLayout = JsonObject{{"elements", jsonFromTouchElements(state.touchElements)}};
+      state.touchElements.erase(state.touchElements.begin() + deleteControl);
+      state.selectedTouchElement = std::min(deleteControl, (int)state.touchElements.size() - 1);
+    }
     ImGui::EndChild();
   }
 
@@ -4743,6 +4803,7 @@ private:
 #endif
 
       if (overlayEnabled) {
+        m_touchAdapter->renderShortcutIcons(*m_application);
         m_touchAdapter->drawOverlay(m_renderRate, m_application && m_application->touchDirectionalMining());
         ImGui::Render();
         setAndroidImGuiTextInputActive(ImGui::GetIO().WantTextInput);

@@ -7,6 +7,14 @@
 #include <string_view>
 
 namespace Star::TouchInput {
+// Convert the same physical position drawn by ImGui to the game's bottom-up
+// render canvas. Insets belong to the full window, not the safe-area size.
+inline std::array<float, 2> shortcutCenter(std::array<float, 2> local,
+    std::array<float, 2> window, std::array<float, 2> canvas, std::array<float, 2> inset) {
+  return {(local[0] + inset[0]) * canvas[0] / std::max(1.0f, window[0]),
+      canvas[1] - (local[1] + inset[1]) * canvas[1] / std::max(1.0f, window[1])};
+}
+
 enum class ItemAction { Move, Inspect, One, Half };
 struct HeldUse {
   enum class Edge { None, Press, Release };

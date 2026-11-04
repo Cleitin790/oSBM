@@ -1,4 +1,5 @@
 #include "StarAssets.hpp"
+#include "StarDirectoryAssetSource.hpp"
 #include "StarBuffer.hpp"
 #include "StarFile.hpp"
 #include "StarImage.hpp"
@@ -113,4 +114,22 @@ TEST(AssetsTest, All) {
 
   EXPECT_EQ(
       AssetPath::relativeTo("/foo/bar/baz:baf?whoa?there", "thing:sub?directive"), "/foo/bar/thing:sub?directive");
+}
+
+TEST(AssetsTest, DirectoryIgnorePatternsKeepSemantics) {
+  String directory = File::temporaryDirectory();
+  auto cleanup = finally([&]() { File::removeDirectoryRecursive(directory); });
+  // Empty trees must not eagerly reject a pattern that is never reached.
+  EXPECT_NO_THROW(DirectoryAssetSource(directory, {"["}));
+  File::makeDirectoryRecursive(File::relativeTo(directory, "nested"));
+  File::writeFile(String("{}"), File::relativeTo(directory, "nested/Keep.JSON"));
+  File::writeFile(String("ignored"), File::relativeTo(directory, "nested/skip.TMP"));
+  File::writeFile(String("{}"), File::relativeTo(directory, "_metadata"));
+  DirectoryAssetSource source(directory, {"[.]tmp$"});
+  auto paths = source.assetPaths();
+  ASSERT_EQ(paths.size(), 1u);
+  EXPECT_EQ(paths[0], "/nested/Keep.JSON");
+  EXPECT_EQ(source.read(paths[0]), ByteArray("{}", 2));
+  EXPECT_NO_THROW(DirectoryAssetSource(directory, {".*", "["}));
+  EXPECT_THROW(DirectoryAssetSource(directory, {"["}), StringException);
 }

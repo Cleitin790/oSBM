@@ -46,7 +46,9 @@ enum class MobileTouchActionKind {
   ActionWheel,
   InventoryWheel,
   UiNavigation,
-  None
+  None,
+  MiningModeToggle,
+  QuickSlot
 };
 
 struct MobileTouchAction {
@@ -58,6 +60,8 @@ struct MobileTouchAction {
   // For KeyMacro: true = play the keys as an ordered sequence of taps,
   // false = hold all keys down together (a chord / key combination).
   bool macroSequential = true;
+  int quickSlot = 0;
+  bool quickUse = false;
 };
 
 struct MobileTouchConfig {
@@ -185,6 +189,8 @@ MobileTouchAction mouseAction(MouseButton button);
 MobileTouchAction wheelAction(bool up);
 MobileTouchAction gyroToggleAction();
 MobileTouchAction touchHandSwapAction();
+MobileTouchAction quickSlotAction(int slot = 0, bool use = false);
+MobileTouchAction miningModeAction();
 MobileTouchAction targetLockAction(bool next = false);
 void loadTouchAimOptions(MobileTouchConfig& config, Json const& json);
 MobileTouchAction gamepadAimModeToggleAction();
@@ -237,7 +243,7 @@ public:
   void setGyroInput(std::array<float, 3> const& data, bool hasData, SDL_DisplayOrientation orientation);
   bool processSdlEvent(SDL_Event const& event);
   void cancelAll();
-  void drawOverlay(float fps);
+  void drawOverlay(float fps, bool directionalMining = false);
   bool overlayEnabled() const;
 
 private:

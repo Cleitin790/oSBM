@@ -1483,6 +1483,8 @@ private:
       {launcherText("touchActionChoice.actionBar5", "Action Bar 5"), keyAction(Key::Five)},
       {launcherText("touchActionChoice.scrollUp", "Scroll Up"), wheelAction(true)},
       {launcherText("touchActionChoice.scrollDown", "Scroll Down"), wheelAction(false)},
+      {launcherText("touchActionChoice.quickSlot", "Quick bar shortcut"), quickSlotAction()},
+      {launcherText("touchActionChoice.miningMode", "Free / directional mining"), miningModeAction()},
       {launcherText("touchActionChoice.targetLock", "Lock / unlock target"), targetLockAction()},
       {launcherText("touchActionChoice.targetNext", "Next target"), targetLockAction(true)},
       {launcherText("touchActionChoice.swapAimHand", "Swap aim hand"), touchHandSwapAction()},
@@ -1509,6 +1511,8 @@ private:
   bool touchActionEqual(MobileTouchAction const& a, MobileTouchAction const& b) const {
     if (a.kind != b.kind)
       return false;
+    if (a.kind == MobileTouchActionKind::QuickSlot)
+      return a.quickSlot == b.quickSlot && a.quickUse == b.quickUse;
     if (a.kind == MobileTouchActionKind::Key)
       return a.key == b.key;
     if (a.kind == MobileTouchActionKind::KeyMacro)
@@ -1523,7 +1527,7 @@ private:
   int actionIndex(MobileTouchAction const& action, std::vector<pair<String, MobileTouchAction>> const& choices) const {
     for (size_t i = 0; i < choices.size(); ++i) {
       auto const& candidate = choices[i].second;
-      if (touchActionEqual(candidate, action))
+      if ((candidate.kind == MobileTouchActionKind::QuickSlot && action.kind == candidate.kind) || touchActionEqual(candidate, action))
         return (int)i;
     }
     return 0;
@@ -2130,12 +2134,24 @@ private:
     ImGui::PopID();
   }
 
+  void renderQuickSlotOptions(MobileTouchAction& action, String const& id) {
+    if (action.kind != MobileTouchActionKind::QuickSlot) return;
+    ImGui::PushID(id.utf8Ptr());
+    int slot = action.quickSlot + 1;
+    if (ImGui::SliderInt("Bar slot (main hand)", &slot, 1, 10)) action.quickSlot = slot - 1;
+    ImGui::Checkbox("Use while held", &action.quickUse);
+    ImGui::TextWrapped("Put the chosen item in the left/main hand position of this slot in your current hotbar group. Off: equip only. On: equip and use while held; release stops use. The item stays equipped. Enable Q1/Q2/Q3 and rename them in the layout editor.");
+    ImGui::PopID();
+  }
+
   void renderTouchActionCombo(LauncherState& state, char const* label, MobileTouchAction& action, String const& bufferId) {
     renderActionCombo(state, label, action, bufferId, touchActionChoices());
+    renderQuickSlotOptions(action, bufferId);
   }
 
   void renderGamepadActionCombo(LauncherState& state, char const* label, MobileTouchAction& action, String const& bufferId) {
     renderActionCombo(state, label, action, bufferId, gamepadActionChoices());
+    renderQuickSlotOptions(action, bufferId);
   }
 
   void renderTouchPressModeCombo(MobileTouchElement& element) {
@@ -4727,7 +4743,7 @@ private:
 #endif
 
       if (overlayEnabled) {
-        m_touchAdapter->drawOverlay(m_renderRate);
+        m_touchAdapter->drawOverlay(m_renderRate, m_application && m_application->touchDirectionalMining());
         ImGui::Render();
         setAndroidImGuiTextInputActive(ImGui::GetIO().WantTextInput);
       }

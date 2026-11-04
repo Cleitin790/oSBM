@@ -525,6 +525,10 @@ void ClientApplication::windowChanged(WindowMode windowMode, Vec2U screenSize) {
 }
 
 #ifdef STAR_PLATFORM_MOBILE
+bool ClientApplication::touchDirectionalMining() const {
+  return m_mainInterface && m_mainInterface->directionalMiningEnabled();
+}
+
 unsigned ClientApplication::touchInputMode() const {
   if (m_state != MainAppState::SinglePlayer && m_state != MainAppState::MultiPlayer)
     return 2;

@@ -112,7 +112,13 @@ public:
   void renderCursorOverlay();
 
   Vec2F cursorWorldPosition() const;
+  Vec2F rawCursorWorldPosition() const;
 
+#ifdef STAR_PLATFORM_MOBILE
+  bool directionalMiningEnabled() const { return m_directionalMining; }
+  void setTouchItemAction(TouchInput::ItemAction action) { m_paneManager.setTouchItemAction(action); }
+  TouchInput::ItemAction touchItemAction() const { return m_paneManager.touchItemAction(); }
+#endif
   bool isDebugDisplayed();
 
   void doChat(String const& chat, bool addToHistory);
@@ -205,6 +211,14 @@ private:
   bool lockTargetValid(EntityId id, Vec2F& position) const;
   void updateTargetLock();
   void acquireTargetLock(bool next);
+  void finishQuickSlot();
+  String m_quickSlotOwner;
+  ItemPtr m_quickSlotItem;
+  TouchInput::HeldUse m_quickUse;
+  bool m_primaryInputHeld = false, m_secondaryInputHeld = false;
+  bool m_directionalMining = false;
+  bool m_miningInput = false;
+  Maybe<Vec2F> m_miningTarget;
   bool m_lockOnEnabled = false, m_lockPreferBoss = true;
   float m_lockRange = 40;
   EntityId m_lockTarget = NullEntityId;

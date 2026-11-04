@@ -1,6 +1,7 @@
 #pragma once
 
 #include "StarItem.hpp"
+#include "StarGameTypes.hpp"
 #include "StarBeamItem.hpp"
 #include "StarSwingableItem.hpp"
 #include "StarDurabilityItem.hpp"
@@ -23,9 +24,26 @@ STAR_CLASS(BeamMiningTool);
 STAR_CLASS(TillingTool);
 STAR_CLASS(PaintingBeamTool);
 
-class MiningTool : public Item, public SwingableItem, public DurabilityItem {
+// Shared input assistance for native tile-mining items, including mod assets.
+// Concrete tools retain their damage, durability and timing implementations.
+class TileMiningTool {
+public:
+  virtual ~TileMiningTool() = default;
+  void setDirectionalMining(bool enabled, bool hasTarget, TileLayer layer = TileLayer::Foreground);
+  virtual List<Vec2I> miningTiles(bool shifting, TileLayer layer) const = 0;
+
+protected:
+  List<Vec2I> miningArea(ToolUserEntity* owner, World* world, int radius, TileLayer layer) const;
+  bool m_directionalMining = false;
+  bool m_directionalMiningHasTarget = false;
+  TileLayer m_directionalMiningLayer = TileLayer::Foreground;
+};
+
+class MiningTool : public Item, public SwingableItem, public DurabilityItem, public TileMiningTool {
 public:
   MiningTool(Json const& config, String const& directory, Json const& parameters = JsonObject());
+  void init(ToolUserEntity* owner, ToolHand hand) override;
+  List<Vec2I> miningTiles(bool shifting, TileLayer layer) const override;
 
   ItemPtr clone() const override;
 
@@ -140,9 +158,11 @@ private:
   WireConnector* m_wireConnector;
 };
 
-class BeamMiningTool : public Item, public FireableItem, public PreviewTileTool, public PointableItem, public BeamItem {
+class BeamMiningTool : public Item, public FireableItem, public PreviewTileTool, public PointableItem, public BeamItem, public TileMiningTool {
 public:
   BeamMiningTool(Json const& config, String const& directory, Json const& parameters = JsonObject());
+
+  List<Vec2I> miningTiles(bool shifting, TileLayer layer) const override;
 
   ItemPtr clone() const override;
 

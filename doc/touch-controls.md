@@ -74,8 +74,9 @@ limites nem o padrão automático de novas instalações.
 - Lista/crafting/área com `ScrollArea`: arraste para rolar. Há inércia leve,
   amortecimento exponencial e limite de velocidade. Ícones de receitas em listas
   rolam, em vez de iniciar arrasto de inventário.
-- Item de inventário: segurar por 450 ms envia um clique direito, além do hover
-  usado pelo tooltip. Isso pode separar uma unidade, conforme a UI vanilla.
+- Item de inventário: segurar por 450 ms mostra os detalhes sem mover ou
+  dividir a pilha. A faixa Mover / Info / 1 item / Metade oferece divisão
+  explícita; veja [inventário e atalhos](touch-inventory-shortcuts.md).
 - Dois dedos próximos no item, antes de arrastar/segurar: Shift+clique para a
   transferência rápida existente. O segundo dedo não assume o cursor.
 - Arrastar item: ultrapasse 10 dp de deslocamento para pegar a pilha; solte em

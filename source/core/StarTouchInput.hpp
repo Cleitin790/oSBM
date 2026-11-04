@@ -7,6 +7,27 @@
 #include <string_view>
 
 namespace Star::TouchInput {
+enum class ItemAction { Move, Inspect, One, Half };
+struct HeldUse {
+  enum class Edge { None, Press, Release };
+  bool active = false, firing = false;
+  void press() { active = true; }
+  Edge update(bool permitted) {
+    if (!permitted) active = false;
+    if (active == firing) return Edge::None;
+    firing = active;
+    return firing ? Edge::Press : Edge::Release;
+  }
+  Edge cancel() { active = false; return update(false); }
+};
+
+// Explicit inventory action: dragging/releasing after inspection never moves
+// a stack; splitting is delegated to the normal right-click callbacks.
+inline bool itemDragAllowed(ItemAction action) { return action == ItemAction::Move; }
+inline bool itemInspect(ItemAction action, bool longPress) { return longPress || action == ItemAction::Inspect; }
+inline bool itemSplit(ItemAction action) { return action == ItemAction::One || action == ItemAction::Half; }
+inline ItemAction itemActionAfterTap(ItemAction action) { return action == ItemAction::Half ? ItemAction::Move : action; }
+
 
 // Lógica sem estado de jogo e sem alocações. SDL usa Y positivo para baixo.
 using Point = std::array<float, 2>;
@@ -98,6 +119,10 @@ inline bool comfortablePreset(std::string_view id, Point& position, float& size)
     {"actionWheel", {.06f, .64f}, .95f},
     {"singleBlock", {.24f, .53f}, .80f},
     {"swapAimHand", {.24f, .70f}, .80f},
+    {"miningMode", {.34f, .32f}, .80f},
+    {"quick1", {.44f, .32f}, .80f},
+    {"quick2", {.54f, .32f}, .80f},
+    {"quick3", {.64f, .32f}, .80f},
     {"targetLock", {.34f, .53f}, .80f},
     {"targetNext", {.44f, .53f}, .80f},
     {"dpad", {.14f, .80f}, 1.15f},

@@ -47,6 +47,7 @@ public:
 #ifdef STAR_PLATFORM_MOBILE
   // 0: jogo, 1: janela, 2: tela/menu sem controles de gameplay.
   virtual unsigned touchInputMode() const { return 2; }
+  virtual bool touchDirectionalMining() const { return false; }
 #endif
 
   // Will be called at updateRate hz, or as close as possible.

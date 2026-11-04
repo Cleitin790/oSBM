@@ -258,6 +258,12 @@ struct TextInputEvent {
 #ifdef STAR_PLATFORM_MOBILE
 enum class TargetLockCommand { Toggle, Next, Cancel };
 struct MiningModeEvent {};
+struct QuickSlotEvent {
+  unsigned index = 0;
+  bool pressed = false;
+  bool use = false;
+  String owner;
+};
 
 struct TargetLockEvent { TargetLockCommand command; };
 
@@ -347,6 +353,7 @@ typedef Variant<
     TouchPointerEvent,
     TargetLockEvent,
     MiningModeEvent,
+    QuickSlotEvent,
 #endif
     MouseMoveEvent,
     MouseButtonDownEvent,

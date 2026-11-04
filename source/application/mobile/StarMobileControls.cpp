@@ -78,6 +78,7 @@ String actionName(MobileTouchAction const& action) {
       return launcherTextStatic("touchAction.scrollUp", "Scroll Up");
     case MobileTouchActionKind::MouseWheelDown:
       return launcherTextStatic("touchAction.scrollDown", "Scroll Down");
+    case MobileTouchActionKind::QuickSlot: return strf("Bar {}{}", action.quickSlot + 1, action.quickUse ? " / hold to use" : "");
     case MobileTouchActionKind::MiningModeToggle: return launcherTextStatic("touchAction.miningMode", "Free / directional mining");
     case MobileTouchActionKind::TargetLockToggle: return launcherTextStatic("touchAction.targetLock", "Lock / unlock target");
     case MobileTouchActionKind::TargetLockNext: return launcherTextStatic("touchAction.targetNext", "Next target");
@@ -126,6 +127,14 @@ MobileTouchAction mouseAction(MouseButton button) {
 MobileTouchAction wheelAction(bool up) {
   MobileTouchAction action;
   action.kind = up ? MobileTouchActionKind::MouseWheelUp : MobileTouchActionKind::MouseWheelDown;
+  return action;
+}
+
+MobileTouchAction quickSlotAction(int slot, bool use) {
+  MobileTouchAction action;
+  action.kind = MobileTouchActionKind::QuickSlot;
+  action.quickSlot = std::clamp(slot, 0, 9);
+  action.quickUse = use;
   return action;
 }
 
@@ -255,6 +264,9 @@ std::vector<MobileTouchElement> defaultTouchElements() {
     {"shift", launcherTextStatic("touchElement.shift", "Shift"), MobileTouchElementKind::Button, false, {0.66f, 0.88f}, 0.82f, keyAction(Key::LShift), {}, {}, {}, {}},
     {"targetLock", launcherTextStatic("touchElement.targetLock", "Lock"), MobileTouchElementKind::Button, true, {0.54f, 0.45f}, 0.72f, targetLockAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
     {"targetNext", launcherTextStatic("touchElement.targetNext", "Next"), MobileTouchElementKind::Button, true, {0.62f, 0.45f}, 0.72f, targetLockAction(true), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
+    {"quick1", "Q1", MobileTouchElementKind::Button, false, {0.50f, 0.32f}, .80f, quickSlotAction(0), {}, {}, {}, {}, MobileTouchPressMode::Hold},
+    {"quick2", "Q2", MobileTouchElementKind::Button, false, {0.58f, 0.32f}, .80f, quickSlotAction(1), {}, {}, {}, {}, MobileTouchPressMode::Hold},
+    {"quick3", "Q3", MobileTouchElementKind::Button, false, {0.66f, 0.32f}, .80f, quickSlotAction(2), {}, {}, {}, {}, MobileTouchPressMode::Hold},
     {"miningMode", launcherTextStatic("touchElement.miningMode", "Mine"), MobileTouchElementKind::Button, true, {0.42f, 0.32f}, 0.72f, miningModeAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
     {"singleBlock", launcherTextStatic("touchElement.singleBlock", "1 block"), MobileTouchElementKind::Button, true, {0.76f, 0.30f}, 0.72f, keyAction(Key::LShift), {}, {}, {}, {}, MobileTouchPressMode::Toggle},
     {"swapAimHand", launcherTextStatic("touchElement.swapAimHand", "L/R"), MobileTouchElementKind::Button, true, {0.80f, 0.46f}, 0.72f, touchHandSwapAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
@@ -368,6 +380,7 @@ Json jsonFromTouchAction(MobileTouchAction const& action) {
     return JsonObject{{"type", "wheel"}, {"direction", "up"}};
   if (action.kind == MobileTouchActionKind::MouseWheelDown)
     return JsonObject{{"type", "wheel"}, {"direction", "down"}};
+  if (action.kind == MobileTouchActionKind::QuickSlot) return JsonObject{{"type", "quickSlot"}, {"slot", action.quickSlot}, {"use", action.quickUse}};
   if (action.kind == MobileTouchActionKind::MiningModeToggle) return JsonObject{{"type", "miningMode"}};
   if (action.kind == MobileTouchActionKind::TargetLockToggle) return JsonObject{{"type", "targetLock"}};
   if (action.kind == MobileTouchActionKind::TargetLockNext) return JsonObject{{"type", "targetNext"}};
@@ -398,6 +411,8 @@ MobileTouchAction touchActionFromJson(Json const& json, MobileTouchAction def) {
     return mouseAction(MouseButtonNames.valueLeft(json.getString("button", MouseButtonNames.getRight(def.mouseButton)), def.mouseButton));
   if (type.equals("wheel", String::CaseInsensitive))
     return wheelAction(!json.getString("direction", "up").equals("down", String::CaseInsensitive));
+  if (type.equals("quickSlot", String::CaseInsensitive))
+    return quickSlotAction((int)std::clamp(json.getInt("slot", 0), (int64_t)0, (int64_t)9), json.getBool("use", false));
   if (type.equals("miningMode", String::CaseInsensitive)) return miningModeAction();
   if (type.equals("targetLock", String::CaseInsensitive)) return targetLockAction();
   if (type.equals("targetNext", String::CaseInsensitive)) return targetLockAction(true);
@@ -769,6 +784,9 @@ public:
   void cancelAll() {
     emitEvent(TouchPointerEvent{0, TouchPhase::Cancel, {}});
     emitEvent(TargetLockEvent{TargetLockCommand::Cancel});
+    for (auto const& entry : m_quickSlotOwners)
+      emitEvent(QuickSlotEvent{(unsigned)entry.second.quickSlot, false, entry.second.quickUse, entry.first});
+    m_quickSlotOwners.clear();
     clearPulsedActions();
     m_macroEvents.clear();
 
@@ -847,7 +865,7 @@ public:
     }
   }
 
-  void drawOverlay(float fps) {
+  void drawOverlay(float fps, bool directionalMining) {
     if (!m_config.enabled || m_context != 0)
       return;
 
@@ -1006,7 +1024,19 @@ public:
       } else {
         bool held = heldElement(element.id)
             || (element.action.kind == MobileTouchActionKind::GyroToggle && m_gyroAvailable && m_config.gyroEnabled && m_gyroRuntimeEnabled);
+        if (element.action.kind == MobileTouchActionKind::MiningModeToggle)
+          held = directionalMining;
         drawButton(draw, ip(center), drawRadius * 0.55f, held, element.label.utf8Ptr(), base, fill, thickness, labels, cache, cache.icon);
+        char const* badge = element.action.kind == MobileTouchActionKind::MiningModeToggle
+            ? (directionalMining ? "DIR" : "LIVRE")
+            : element.action.kind == MobileTouchActionKind::TouchHandSwap
+                ? (m_aimSecondary ? "MAO R" : "MAO L") : nullptr;
+        if (badge) {
+          ImVec2 pos = ip(center);
+          float fontSize = ImGui::GetFontSize();
+          ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0, badge);
+          labels.push_back({ImVec2(pos.x - size.x * .5f, pos.y + drawRadius * .60f), badge, fontSize});
+        }
       }
       for (size_t label=firstLabel; label<labels.size(); ++label) labels[label].opacity=element.opacity;
     }
@@ -1254,7 +1284,8 @@ private:
       if (bestElement->kind == MobileTouchElementKind::Button) {
         state.role = FingerRole::ActionButton;
         state.action = bestElement->action;
-        state.pressMode = bestElement->pressMode;
+        state.pressMode = bestElement->action.kind == MobileTouchActionKind::QuickSlot
+            ? MobileTouchPressMode::Hold : bestElement->pressMode;
         if (bestElement->action.kind == MobileTouchActionKind::MiningModeToggle || bestElement->action.kind == MobileTouchActionKind::TargetLockToggle || bestElement->action.kind == MobileTouchActionKind::TargetLockNext)
           state.pressMode = MobileTouchPressMode::SinglePress;
         if (isWheelAction(bestElement->action)) {
@@ -1816,6 +1847,10 @@ private:
 
   void pressActionButton(MobileTouchElement const& element) {
     m_heldElements.add(element.id);
+    if (element.action.kind == MobileTouchActionKind::QuickSlot) {
+      setAction(element.action, element.id, true);
+      return;
+    }
     if (element.action.kind == MobileTouchActionKind::MiningModeToggle) {
       emitEvent(MiningModeEvent{});
       return;
@@ -1996,7 +2031,15 @@ private:
   }
 
   void setAction(MobileTouchAction const& action, String const& owner, bool desired) {
-    if (action.kind == MobileTouchActionKind::MiningModeToggle) {
+    if (action.kind == MobileTouchActionKind::QuickSlot) {
+      if (desired && !m_quickSlotOwners.contains(owner)) {
+        m_quickSlotOwners[owner] = action;
+        emitEvent(QuickSlotEvent{(unsigned)action.quickSlot, true, action.quickUse, owner});
+      } else if (!desired && m_quickSlotOwners.contains(owner)) {
+        m_quickSlotOwners.remove(owner);
+        emitEvent(QuickSlotEvent{(unsigned)action.quickSlot, false, action.quickUse, owner});
+      }
+    } else if (action.kind == MobileTouchActionKind::MiningModeToggle) {
       if (desired) emitEvent(MiningModeEvent{});
     } else if (action.kind == MobileTouchActionKind::TargetLockToggle || action.kind == MobileTouchActionKind::TargetLockNext) {
       if (desired) emitEvent(TargetLockEvent{action.kind == MobileTouchActionKind::TargetLockNext ? TargetLockCommand::Next : TargetLockCommand::Toggle});
@@ -2439,6 +2482,7 @@ private:
   StringMap<int64_t> m_pulsedActionReleaseMs;
   StringSet m_keyActionOwners;
   HashMap<Key, unsigned> m_keyHoldCounts;
+  StringMap<MobileTouchAction> m_quickSlotOwners;
   StringSet m_mouseActionOwners;
   HashMap<MouseButton, unsigned> m_mouseHoldCounts;
 
@@ -2606,6 +2650,9 @@ public:
   void cancelAll() {
     if (m_config.enabled)
       emitEvent(TargetLockEvent{TargetLockCommand::Cancel});
+    for (auto const& entry : m_quickSlotOwners)
+      emitEvent(QuickSlotEvent{(unsigned)entry.second.quickSlot, false, entry.second.quickUse, entry.first});
+    m_quickSlotOwners.clear();
     clearPulsedActions();
     closeActionWheel(false);
     m_macroEvents.clear();
@@ -2712,6 +2759,11 @@ private:
     ActiveButton active{binding->action, binding->pressMode};
     m_activeButtons[owner] = active;
 
+    if (binding->action.kind == MobileTouchActionKind::QuickSlot) {
+      m_activeButtons[owner].pressMode = MobileTouchPressMode::Hold;
+      setAction(binding->action, owner, true);
+      return;
+    }
     if (binding->action.kind == MobileTouchActionKind::MiningModeToggle || binding->action.kind == MobileTouchActionKind::TargetLockToggle || binding->action.kind == MobileTouchActionKind::TargetLockNext) {
       m_activeButtons[owner].pressMode = MobileTouchPressMode::SinglePress;
       startPulsedAction(binding->action, owner);
@@ -2928,7 +2980,15 @@ private:
   }
 
   void setAction(MobileTouchAction const& action, String const& owner, bool desired) {
-    if (action.kind == MobileTouchActionKind::MiningModeToggle) {
+    if (action.kind == MobileTouchActionKind::QuickSlot) {
+      if (desired && !m_quickSlotOwners.contains(owner)) {
+        m_quickSlotOwners[owner] = action;
+        emitEvent(QuickSlotEvent{(unsigned)action.quickSlot, true, action.quickUse, owner});
+      } else if (!desired && m_quickSlotOwners.contains(owner)) {
+        m_quickSlotOwners.remove(owner);
+        emitEvent(QuickSlotEvent{(unsigned)action.quickSlot, false, action.quickUse, owner});
+      }
+    } else if (action.kind == MobileTouchActionKind::MiningModeToggle) {
       if (desired) emitEvent(MiningModeEvent{});
     } else if (action.kind == MobileTouchActionKind::TargetLockToggle || action.kind == MobileTouchActionKind::TargetLockNext) {
       if (desired) emitEvent(TargetLockEvent{action.kind == MobileTouchActionKind::TargetLockNext ? TargetLockCommand::Next : TargetLockCommand::Toggle});
@@ -3097,6 +3157,7 @@ private:
   StringMap<int64_t> m_pulsedActionReleaseMs;
   StringSet m_keyActionOwners;
   HashMap<Key, unsigned> m_keyHoldCounts;
+  StringMap<MobileTouchAction> m_quickSlotOwners;
   StringSet m_mouseActionOwners;
   HashMap<MouseButton, unsigned> m_mouseHoldCounts;
 
@@ -3128,7 +3189,7 @@ bool MobileTouchInputAdapter::gyroSensorRequested() const { return m_impl->gyroS
 void MobileTouchInputAdapter::setGyroInput(std::array<float, 3> const& data, bool hasData, SDL_DisplayOrientation orientation) { m_impl->setGyroInput(data, hasData, orientation); }
 bool MobileTouchInputAdapter::processSdlEvent(SDL_Event const& event) { return m_impl->processSdlEvent(event); }
 void MobileTouchInputAdapter::cancelAll() { m_impl->cancelAll(); }
-void MobileTouchInputAdapter::drawOverlay(float fps) { m_impl->drawOverlay(fps); }
+void MobileTouchInputAdapter::drawOverlay(float fps, bool directionalMining) { m_impl->drawOverlay(fps, directionalMining); }
 bool MobileTouchInputAdapter::overlayEnabled() const { return m_impl->overlayEnabled(); }
 
 MobileGamepadInputAdapter::MobileGamepadInputAdapter(Vec2U* renderCanvasSize)

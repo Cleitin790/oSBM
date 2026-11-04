@@ -368,6 +368,29 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
     m_miningInput = false;
     m_miningTarget.reset();
   }
+  if (auto shortcut = event.ptr<QuickSlotEvent>()) {
+    if (!shortcut->pressed) {
+      if (m_quickSlotOwner == shortcut->owner) finishQuickSlot();
+      return true;
+    }
+    if (!player->inWorld() || player->isDead() || windowsOpen() || inputFocus() || m_client->paused() || m_actionWheelActive
+        || (m_cinematicOverlay && !m_cinematicOverlay->completed())
+        || !m_quickSlotOwner.empty() || m_primaryInputHeld || m_secondaryInputHeld
+        || inv->swapSlotItem() || shortcut->index >= inv->customBarIndexes()) return true;
+    auto slot = inv->customBarPrimarySlot((CustomBarIndex)shortcut->index);
+    auto item = slot ? inv->itemsAt(*slot) : ItemPtr{};
+    if (!item || !item->count()) { queueMessage("Atalho: slot vazio"); return true; }
+    inv->selectActionBarLocation((CustomBarIndex)shortcut->index);
+    player->refreshItems();
+    m_lockTarget = NullEntityId;
+    m_miningTarget.reset();
+    if (shortcut->use) {
+      m_quickSlotOwner = shortcut->owner;
+      m_quickSlotItem = item;
+      m_quickUse.press();
+    }
+    return true;
+  }
   if (event.is<MiningModeEvent>()) {
     if (!windowsOpen() && !inputFocus()) {
       m_directionalMining = !m_directionalMining;
@@ -378,6 +401,8 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
   }
   if (auto lock = event.ptr<TargetLockEvent>()) {
     if (lock->command == TargetLockCommand::Cancel) {
+      finishQuickSlot();
+      m_primaryInputHeld = m_secondaryInputHeld = false;
       m_miningInput = false;
       m_miningTarget.reset();
     }
@@ -411,6 +436,9 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
     actionPosition = m_worldPainter->camera().worldToScreen(m_lockPosition);
     directionalAction = true;
   }
+#endif
+#ifdef STAR_PLATFORM_MOBILE
+  if (event.is<MouseButtonDownEvent>() && !m_quickSlotOwner.empty()) finishQuickSlot();
 #endif
   if (directionalAction) {
     if (auto mouseDown = event.ptr<MouseButtonDownEvent>())
@@ -517,20 +545,34 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
     && overlayClick(mouseDown->mousePosition, mouseDown->mouseButton)) {
       return true;
     } else {
-      if (mouseButton == MouseButton::Left)
+      if (mouseButton == MouseButton::Left) {
+#ifdef STAR_PLATFORM_MOBILE
+        m_primaryInputHeld = true;
+#endif
         player->beginPrimaryFire();
+      }
       if (mouseButton == MouseButton::Right) {
         m_targetPreviewAlt = true;
+#ifdef STAR_PLATFORM_MOBILE
+        m_secondaryInputHeld = true;
+#endif
         player->beginAltFire();
       }
       if (mouseButton == MouseButton::Middle)
         player->beginTrigger();
     }
   } else if (auto mouseUp = effectiveEvent.ptr<MouseButtonUpEvent>()) {
-    if (mouseUp->mouseButton == MouseButton::Left)
+    if (mouseUp->mouseButton == MouseButton::Left) {
+#ifdef STAR_PLATFORM_MOBILE
+      m_primaryInputHeld = false;
+#endif
       player->endPrimaryFire();
+    }
     if (mouseUp->mouseButton == MouseButton::Right) {
       m_targetPreviewAlt = false;
+#ifdef STAR_PLATFORM_MOBILE
+      m_secondaryInputHeld = false;
+#endif
       player->endAltFire();
     }
     if (mouseUp->mouseButton == MouseButton::Middle)
@@ -680,9 +722,25 @@ void MainInterface::handleInteractAction(InteractAction interactAction) {
   }
 }
 
+#ifdef STAR_PLATFORM_MOBILE
+void MainInterface::finishQuickSlot() {
+  if (m_quickUse.cancel() == TouchInput::HeldUse::Edge::Release) m_client->mainPlayer()->endPrimaryFire();
+  m_quickSlotOwner = {};
+  m_quickSlotItem.reset();
+}
+#endif
+
 void MainInterface::preUpdate(float) {
   auto player = m_client->mainPlayer();
 #ifdef STAR_PLATFORM_MOBILE
+  if (!m_quickSlotOwner.empty()) {
+    if (!player->inWorld() || player->isDead() || windowsOpen() || inputFocus() || m_client->paused() || m_actionWheelActive
+        || (m_cinematicOverlay && !m_cinematicOverlay->completed())
+        || player->inventory()->primaryHeldItem() != m_quickSlotItem
+        || !m_quickSlotItem->count()) finishQuickSlot();
+    else if (m_quickUse.update(true) == TouchInput::HeldUse::Edge::Press)
+      player->beginPrimaryFire();
+  }
   m_miningTarget.reset();
   bool assisted = m_directionalMining && m_miningInput && player->inWorld()
       && !m_client->paused() && !windowsOpen() && !inputFocus() && !m_actionWheelActive
@@ -1800,10 +1858,7 @@ void MainInterface::updateTargetPreview() {
     m_targetPreviewStatus = "Out of reach";
   else if (anyInvalid)
     m_targetPreviewStatus = anyValid ? "Partially blocked" : "Blocked";
-#ifdef STAR_PLATFORM_MOBILE
-  else if (mining && m_directionalMining && m_miningInput)
-    m_targetPreviewStatus = "Directional mining";
-#endif
+
 }
 
 void MainInterface::renderTargetPreview() {

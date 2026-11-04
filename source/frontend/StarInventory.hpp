@@ -57,6 +57,9 @@ private:
   Maybe<MaterialDeposit> m_materialDeposit;
   EntityId m_materialDepositContainer = NullEntityId;
   List<ButtonWidgetPtr> m_quickActionButtons;
+#ifdef STAR_PLATFORM_MOBILE
+  List<ButtonWidgetPtr> m_touchActionButtons;
+#endif
 
   MainInterface* m_parent;
   PlayerPtr m_player;

@@ -39,7 +39,7 @@ protected:
   void renderImpl() override {
     RectF rect = RectF::withSize(Vec2F(screenPosition()), Vec2F(size()));
     auto fill = m_disabled ? Vec4B(25, 30, 35, 245)
-        : isPressed() ? Vec4B(65, 95, 115, 255)
+        : (isPressed() || isHighlighted()) ? Vec4B(65, 95, 115, 255)
         : isHovered() ? Vec4B(50, 75, 90, 255) : Vec4B(35, 45, 55, 250);
     context()->drawInterfaceQuad(rect, fill);
     context()->drawInterfacePolyLines(PolyF(rect), Vec4B(130, 165, 185, 220), 1.0f);
@@ -222,6 +222,21 @@ InventoryPane::InventoryPane(MainInterface* parent, PlayerPtr player, ContainerI
   addQuickButton("osbmQuickStack", "Juntar", [this](Widget*) { organizeSelectedBag(false); });
   addQuickButton("osbmStoreMaterials", "Guardar materiais", [this](Widget*) { startMaterialDeposit(); });
   setSize(originalSize + Vec2I(0, 22));
+#ifdef STAR_PLATFORM_MOBILE
+  char const* modes[] = {"Mover", "Info", "1 item", "Metade"};
+  int touchWidth = std::max(1, (originalSize[0] - 8) / 4);
+  for (int i = 0; i < 4; ++i) {
+    auto button = make_shared<InventoryQuickButton>();
+    button->setText(modes[i]);
+    button->setFontSize(6);
+    button->setCallback([this, i](Widget*) { m_parent->setTouchItemAction((TouchInput::ItemAction)i); });
+    button->setSize({touchWidth - 2, 18});
+    button->setPosition({4 + i * touchWidth, originalSize[1] + 24});
+    addChild(strf("osbmTouchItem{}", i), button);
+    m_touchActionButtons.append(button);
+  }
+  setSize(originalSize + Vec2I(0, 44));
+#endif
 
   m_trashSlot = fetchChild<ItemSlotWidget>("trash");
   m_trashBurn = GameTimer(config.get("trashBurnTimeout").toFloat());
@@ -463,6 +478,19 @@ void InventoryPane::clearChangedSlots() {
 void InventoryPane::update(float dt) {
   auto inventory = m_player->inventory();
   auto context = Widget::context();
+#ifdef STAR_PLATFORM_MOBILE
+  bool cursorBusy = (bool)inventory->swapSlotItem();
+  bool cursorAugment = is<AugmentItem>(inventory->swapSlotItem());
+  if ((m_parent->touchItemAction() == TouchInput::ItemAction::Half && cursorBusy)
+      || (TouchInput::itemSplit(m_parent->touchItemAction()) && cursorAugment))
+    m_parent->setTouchItemAction(TouchInput::ItemAction::Move);
+  for (size_t i = 0; i < m_touchActionButtons.size(); ++i) {
+    m_touchActionButtons[i]->setHighlighted((size_t)m_parent->touchItemAction() == i);
+    m_touchActionButtons[i]->setEnabled(!quickActionsBusy()
+        && (i != (size_t)TouchInput::ItemAction::Half || !cursorBusy)
+        && (!TouchInput::itemSplit((TouchInput::ItemAction)i) || !cursorAugment));
+  }
+#endif
   bool canOrganize = !quickActionsBusy() && !inventory->swapSlotItem();
   for (size_t i = 0; i < m_quickActionButtons.size(); ++i)
     m_quickActionButtons[i]->setEnabled(canOrganize && (i != 2 || m_containerInteractor->containerOpen()));

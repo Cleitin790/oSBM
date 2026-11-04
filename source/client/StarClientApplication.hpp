@@ -26,6 +26,7 @@ public:
   virtual unsigned framesSkipped() const override;
 #ifdef STAR_PLATFORM_MOBILE
   unsigned touchInputMode() const override;
+  bool touchDirectionalMining() const override;
 #endif
 
 protected:

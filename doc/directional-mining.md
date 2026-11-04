@@ -1,136 +1,98 @@
-# Minera??o livre e direcional
+# Mineração livre e direcional
 
-O bot?o **Mine** no overlay alterna **Mining: free** / **Mining: directional**.
-A mensagem confirma a escolha; com um alvo aparece tamb?m Directional mining.
-Come?a livre a cada sess?o de jogo. A escolha ? manual e ?nica, sem perfis por
-item/contexto. Posi??o/tamanho/r?tulo e desativa??o do bot?o s?o edit?veis como
-os demais controles. Comfortable tamb?m fornece uma posi??o para ele; layouts
-salvos n?o s?o movidos. Gamepad pode remapear a a??o Free / directional mining;
-nenhum bot?o, incluindo R3, ? substitu?do.
+O botão **Mine** alterna **Mining: free** / **Mining: directional**. A mensagem
+confirma a escolha; o botão mostra **LIVRE / DIR** e fica marcado quando ligado,
+inclusive se a troca for feita pelo gamepad. Começa livre a cada sessão.
+É uma escolha manual única, sem perfis por item ou contexto.
 
-No modo direcional, use o joystick de mira e o comando de minera??o habitual.
-A dire??o seleciona a primeira c?lula ocupada por material, do jogador para
-fora, na camada ativa. N?o ? preciso manter o cursor sobre cada bloco. Ap?s a
-remo??o, a sele??o avan?a. O mesmo tra?ado permanece no mesmo primeiro bloco
-at? ele desaparecer; mudan?as de dire??o deliberadas mudam o alvo.
+A posição, tamanho, rótulo e habilitação são editáveis como nos outros controles.
+Comfortable oferece uma posição alternativa sem mover layouts salvos sozinho.
+O gamepad permite remapear a ação; nenhum binding existente, incluindo R3, muda.
 
-- Ferramentas nativas BeamMiningTool e MiningTool, incluindo itens de mods
-  carregados como `.beamaxe` e `.miningtool`, recebem a mesma assist?ncia.
-  N?o depende do nome do item, tradu??o ou de uma lista de mods.
-  Ferramentas `.activeitem` com minera??o Lua personalizada, armas, constru??o
-  e trava de inimigos n?o recebem sele??o de minera??o por adivinha??o de nome
-  ou tags. Precisam de an?lise do mod para integra??o segura.
-  N?o abre automaticamente um t?nel do tamanho do personagem.
-- Preserva ?rea normal e bloco ?nico. Alcance por centro de tile usa toolRadius;
-  a busca n?o ultrapassa 128 blocos / 512 c?lulas, mesmo com mods de alcance.
-- Frente/fundo seguem os comandos j? existentes. Uma a??o simult?nea da outra
-  camada n?o usa o alvo da camada selecionada. A assist?ncia n?o troca de camada.
-- Prote??o no primeiro alvo interrompe o uso. Tiles protegidos/fora de alcance
-  s?o exclu?dos da ?rea assistida. Dano, harvestLevel, cad?ncia, drops e valida??o
-  do servidor continuam nas rotinas nativas. N?o h? garantia de quebra para
-  todo material de mod: imune/harvestLevel insuficiente permanece bloqueando.
-- A ?rea da ferramenta continua podendo atingir v?rios blocos de uma vez. A
-  ordem ? por ?reas sucessivas, n?o uma promessa de remover cada tile sozinho.
-- Sem alvo n?o minera nem coleta l?quidos automaticamente. Para l?quidos,
-  use livre. Atacar ao mirar s? ocorre se a configura??o atual j? o habilita;
-  o bot?o Mine n?o altera essas op??es nem mant?m ataques ao soltar.
-- Mouse f?sico e gestos de interface mant?m mira livre. Menus, chat, rodas,
-  cinematics e pausa suspendem assist?ncia. Cancelamento de input exige nova
-  entrada para retom?-la. N?o h? altera??o no save ou descri??o do item.
+## Funcionamento
+
+Com a opção direcional, aponte o joystick e use o comando habitual da ferramenta.
+A direção seleciona a primeira célula com material, partindo do jogador, na
+camada ativa. A mesma direção mantém o primeiro bloco; depois da remoção,
+a seleção avança. A intensidade do analógico não precisa posicionar o cursor
+sobre cada bloco.
+
+- Suporta os tipos nativos **BeamMiningTool e MiningTool**, incluindo os itens
+  de mods carregados como `.beamaxe` e `.miningtool`. Não depende de nomes,
+  traduções ou uma lista de mods.
+- Preserva a área normal e o bloco único. A ordem é por áreas sucessivas, sem
+  obrigar cada bloco a quebrar sozinho. Não abre automaticamente um túnel com
+  as dimensões do personagem.
+- Frente/fundo seguem os comandos atuais. A outra camada não usa silenciosamente
+  o alvo selecionado. A busca verifica centros dentro de toolRadius, com teto
+  de 128 blocos / 512 células para limitar o custo de alcances extremos.
+- O primeiro alvo protegido interrompe o uso. A área assistida exclui tiles
+  protegidos ou fora de alcance; dano, harvestLevel, desgaste, cadência, drops
+  e validação do servidor continuam nas rotinas nativas.
+- Materiais imunes ou resistentes demais não são ignorados automaticamente.
+  O contorno não garante capacidade de quebrar todo material de mod.
+- Sem alvo, não minera nem coleta líquidos automaticamente. Para líquidos,
+  use livre. O botão não altera as opções existentes de atacar ao mirar.
+- Mouse físico e gestos de interface mantêm mira livre. Janelas, chat, rodas,
+  cinematics e pausa suspendem assistência. Cancelamento exige nova entrada.
+- O estado é transitório; init o limpa nos dois tipos de ferramenta. Não muda
+  o formato do save nem a descrição persistente do item.
 
 ## Destaque discreto
 
-A pr?via adicional usa contornos de 1 pixel, azul claro transl?cido, sem
-preenchimento verde. Vermelho indica impedimentos conhecidos (alcance/prote??o
-ou valida??o nativa de coloca??o). O contorno n?o promete que uma ferramenta
-consiga vencer toda resist?ncia especial de mod. No caminho mobile/launcher,
-o realce original do BeamMiningTool ? suprimido para n?o duplicar o contorno.
-Desktop cl?ssico mant?m sua pr?via nativa. A pr?via de minera??o usa a camada
-selecionada, sem mostrar a parede do fundo quando a a??o ? na frente.
+A prévia adicional usa contornos de 1 pixel, azul claro translúcido, sem
+preenchimento verde. Vermelho indica impedimentos conhecidos: alcance,
+proteção ou validação nativa de colocação. No mobile/launcher, o realce original
+do BeamMiningTool é suprimido para evitar duplicação. Desktop clássico mantém
+a prévia nativa. O desenho usa a camada selecionada, sem mostrar a parede do
+fundo como alvo de uma ação de frente.
 
-## Confer?ncia no aparelho
+O estado da mineração aparece no botão, deixando de repetir uma legenda sobre
+o terreno. Veja também [inventário, atalhos e indicadores](touch-inventory-shortcuts.md).
 
-1. Livre: conferir controles antigos, l?quidos, mouse/toque e armas.
-2. Mine: apontar o anal?gico at? o m?ximo contra uma parede; segurar uso e
-   conferir avan?o, diagonais, vazio, alcance e manter primeiro alvo.
-3. Alternar Mine durante uso; conferir mensagem e retorno imediato ? mira livre.
-4. Conferir bloco ?nico, upgrades de ?rea, frente/fundo e ambos os gatilhos.
-5. Testar prote??o, material resistente e alcance de mods: nunca ignorar regras
-   de dano. Conferir edi??o e persist?ncia do layout e remapeamento do gamepad.
-6. Conferir pausa, foco, invent?rio, troca de ferramenta e trava de inimigos.
-   Com picareta/broca `.miningtool`, conferir dano, desgaste/durabilidade e
-   cad?ncia normais, inclusive item gasto; repetir com um item de mod de cada
-   tipo. Alternar entre ferramenta compat?vel e `.activeitem`/arma deve deixar
-   os ?ltimos com a mira e fun??es originais.
-7. Conferir visual em cen?rio claro/escuro e com zoom/GUI diferentes.
+## Mods informados pelo usuário
 
-APK deve ser gerado no GitHub: Release, arm64, system_allocator=true, sem
-HWASan. Nenhuma mudan?a no workflow, assinatura, compacta??o ou vers?es.
+A análise consultou código público, sem executar os arquivos `.pak` instalados:
 
-## Valida??o desta altera??o
-
-Comandos executados no host Windows, sem gerar APK:
-
-- `zig c++ -std=c++17 -O1 -Wall -Wextra -Werror -I source/core source/test/directional_mining_test.cpp -o <tempor?rio>` e execu??o: **734 checks aprovados**. Exercita intensidade independente, sequ?ncia ap?s remo??o, primeiro obst?culo, eixos/diagonais, centro/limite de alcance, entradas inv?lidas e custo limitado em 360 dire??es.
-- Mesmo comando para gamepad_input_test, touch_input_test e target_lock_test:
-  **31.695**, **8.354** e **148 checks aprovados**. Auditoria pura de toque:
-  **20.000 quadros / zero aloca??es**, sem medir a engine ou o novo desenho.
-- interface_scale_test com include de source/windowing: **102 checks aprovados**.
-- Matriz pontual com headers reais: StarMobileControls.cpp e
-  StarMobilePlatform.cpp; Android arm64/API 28/NDK r26d (`-fsyntax-only`) e
-  Windows launcher/Zig C++17 (`-c`). Ambos aprovados.
-- StarMainInterface.cpp, StarTools.cpp e StarClientApplication.cpp:
-  Android arm64/API 28 (`-fsyntax-only`), Windows launcher e desktop cl?ssico
-  (`-c`). Valida??o final ap?s ajustes de camada/cancelamento registrada nos
-  logs locais ignorados work/validation-directional-mining.
-- `git diff --check`: aprovado. Workflow/Gradle/assinatura e op??es Android
-  permanecem iguais ? main de base f48d54d.
-
-A matriz n?o ? link do jogo nem build de APK. Nenhuma execu??o no aparelho,
-medi??o de FPS, compila??o iOS/Switch/Linux/macOS ou execu??o dos runners
-core_tests/game_tests foi realizada. Conforto, legibilidade, sequenciamento em
-multiplayer e ferramentas/mods reais ainda precisam da confer?ncia acima.
-
-## Compatibilidade com os mods informados
-
-A amplia??o usa a capacidade nativa TileMiningTool em MiningTool e
-BeamMiningTool. ItemDatabase carrega `.miningtool` e `.beamaxe` de qualquer
-mod por esses tipos: n?o depende de nome traduzido, itemTags ou uma lista de
-modifica??es. A sele??o direcional e o filtro de ?rea s?o compartilhados.
-MiningTool continua calculando tileDamage/tileDamageBlunted, harvestLevel,
-durabilityPerUse, sons e cad?ncia pelo c?digo anterior; o ramo livre mant?m a
-?rea anterior. init limpa o estado de assist?ncia nos dois tipos.
-
-C?digo p?blico consultado, sem executar ou redistribuir os assets dos mods:
-
-- Frackin' Universe `17868d86c9bb7bc00f92038fb78b48cebd1b41b8`: inclui, por exemplo,
-  `items/tools/miningtools/carbonpickaxe.miningtool`,
-  `bloodstonepickaxe.miningtool`, `obsidianpickaxe.miningtool`,
-  `hellhammer.miningtool` e manipuladores `.beamaxe`. Esses tipos recebem a
-  amplia??o sem editar os assets do mod.
+- Frackin' Universe, commit `17868d86c9bb7bc00f92038fb78b48cebd1b41b8`:
+  exemplos como carbonpickaxe, bloodstonepickaxe, obsidianpickaxe e hellhammer
+  são `.miningtool`; manipuladores `.beamaxe` também recebem a assistência.
 - O [Mining Laser do FU](https://github.com/sayterdarkwynd/FrackinUniverse/blob/17868d86c9bb7bc00f92038fb78b48cebd1b41b8/items/active/weapons/ranged/unique/miners/minertest/beamfire.lua)
-  j? calcula um raio desde a posi??o do cano, usa lineCollision e gera o
-  proj?til de minera??o no impacto. N?o recebe sele??o adicional da engine;
-  seu funcionamento pr?prio por dire??o fica preservado.
+  já traça um raio desde o cano, usa lineCollision e gera o projétil no impacto.
+  Mantém seu comportamento próprio; Mine não troca a lógica desse laser.
 - Os [lasers do Arcana](https://github.com/sleepySva/sva_arcana/blob/2b7bc3a0b1e32bd0dcb73e2e4042ff8f04f9c409/items/active/unsorted/laserminer/arcana_beammine.lua)
-  usam lineCollision/lineTileCollisionPoint e damageTileArea no impacto, com
-  ?rea, energia, alcance e camada definidos no script. Tamb?m permanecem com
-  seu comportamento original. O bot?o Mine n?o altera esse script nem cria
-  um contorno de ?rea que possa divergir dele.
+  usam lineCollision/lineTileCollisionPoint e damageTileArea no impacto.
+  Área, energia, alcance e camada continuam definidos no script.
 - Enhanced Storage, Shellguard, Voyage An Arcana Addon, FU Extraction Patch
-  for Arcana (Fixed) e Patch Project foram identificados pelo nome na captura;
-  n?o houve auditoria completa desses mods nem de seus patches.
+  for Arcana (Fixed) e Patch Project foram identificados na captura; não houve
+  auditoria completa desses mods ou patches.
 
-A consulta usou o c?digo p?blico dos projetos, n?o os `.pak` do aparelho; as
-vers?es instaladas e patches podem diferir. N?o ? garantia de compatibilidade
-com toda ferramenta ou com todos os mods. N?o foi aplicada detec??o gen?rica
-por palavras como laser/weapon/tool: FU tamb?m tem uma arma Phaser no
-mesmo diret?rio de miners, o que faria esse tipo de palpite afetar combate.
+Outros `.activeitem` personalizados precisam de análise individual. Não há
+palpite por palavras como laser, weapon ou tool: o FU também contém uma arma
+Phaser no diretório miners. As versões públicas podem diferir dos arquivos
+instalados; não é garantia de compatibilidade universal.
 
-Valida??o da amplia??o: as mesmas **734 / 31.695 / 8.354 / 148 / 102**
-verifica??es de sele??o/gamepad/toque/trava/escala passaram novamente.
-StarMainInterface.cpp, StarTools.cpp e StarItemDatabase.cpp passaram em
-**nove checks**: sintaxe Android arm64/API28/NDK r26d e compila??o de objetos
-Windows launcher e desktop cl?ssico, C++17. `git diff --check` passou.
-Logs locais ignorados: work/validation-mining-mods. Sem link, APK ou teste dos
-mods/aparelho; iOS/Switch/Linux/macOS e runners completos n?o foram validados.
+## Validação e conferência
+
+- Teste standalone C++17, O1, Wall/Wextra/Werror: **734 checks de seleção**
+  aprovados, cobrindo direção, intensidade, sequência, alcance, entradas
+  inválidas e custo limitado em 360 direções.
+- Regressões de toque **8.354**, gamepad **31.695**, trava **148** e escala **102**
+  aprovadas. Auditoria pura de toque: 20.000 quadros, zero alocações; não mede
+  a engine inteira ou o custo visual.
+- Etapa inicial: sintaxe Android arm64/API28/NDK r26d e objetos Windows launcher
+  dos cinco C++ alterados; arquivos compartilhados também em Windows clássico.
+- Ampliação de mods: nove checks de StarMainInterface, StarTools e
+  StarItemDatabase em Android arm64, Windows launcher e desktop clássico.
+- `git diff --check` aprovado. As árvores publicadas foram conferidas contra
+  as verificadas. Comandos/logs locais ignorados: work/validation-directional-mining
+  e work/validation-mining-mods.
+
+Não houve link completo, APK, execução no aparelho/mods, medição de FPS,
+compilação iOS/Switch/Linux/macOS ou execução de core_tests/game_tests.
+Conferir no celular: livre/direcional, diagonais, movimento, zoom/GUI, bloco
+único/upgrades de área, frente/fundo, proteção, ferramentas gastas/de mods,
+mouse, menus, foco, troca de equipamento e trava de inimigos.
+
+APK permanece no GitHub Actions: Release, arm64, system_allocator=true,
+sem HWASan. Workflow, assinatura, compactação, versões e ABIs não mudaram.

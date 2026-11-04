@@ -100,6 +100,11 @@ public:
   // HUD overlay detect that its captured frame no longer matches the pane set.
   uint64_t displayedPanesVersion() const;
 
+#ifdef STAR_PLATFORM_MOBILE
+  void setTouchItemAction(TouchInput::ItemAction action);
+  TouchInput::ItemAction touchItemAction() const;
+#endif
+
 private:
   struct UiNavigationCandidate {
     Widget const* widget;
@@ -127,15 +132,17 @@ private:
   bool handleTouchPointer(TouchPointerEvent const& event);
   void updateTouchPointer(float dt);
   void cancelTouchPointer();
-  void touchClick(MouseButton button, Vec2F position, bool shifting = false);
+  void touchClick(MouseButton button, Vec2F position, Maybe<bool> shifting = {});
   WidgetPtr pickTouchWidget(Vec2F position, float minimumSize, PanePtr& pane);
+  void inspectTouchItem();
+  TouchInput::ItemAction m_touchItemAction = TouchInput::ItemAction::Move;
   TouchInput::Contact m_touchContact;
   TouchInput::Gesture m_touchGesture;
   TouchInput::Inertia m_touchInertia[2];
   WidgetPtr m_touchWidget;
   WidgetPtr m_touchScroll;
   PanePtr m_touchPane;
-  Vec2F m_touchStart, m_touchLast, m_touchScrollFraction;
+  Vec2F m_touchStart, m_touchLast, m_touchScrollFraction, m_touchHitPosition;
   float m_touchThreshold = 10;
   double m_touchLastTime = 0;
   uint64_t m_touchPanesVersion = 0;

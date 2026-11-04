@@ -327,7 +327,21 @@ static bool touchInventorySlot(WidgetPtr const& widget) {
   return true;
 }
 
+void PaneManager::setTouchItemAction(TouchInput::ItemAction action) {
+  cancelTouchPointer();
+  m_touchItemAction = action;
+}
+
+TouchInput::ItemAction PaneManager::touchItemAction() const { return m_touchItemAction; }
+
+void PaneManager::inspectTouchItem() {
+  sendInputEvent(MouseMoveEvent{{}, m_touchStart, true, InputSource::Touch});
+  m_tooltipShowTimer.setDone();
+  m_touchGesture.state = TouchInput::Gesture::State::Consumed;
+}
+
 WidgetPtr PaneManager::pickTouchWidget(Vec2F position, float minimumSize, PanePtr& pane) {
+  m_touchHitPosition = position;
   Vec2F guiPos = position / m_context->interfaceScale();
   float minimum = minimumSize / m_context->interfaceScale();
   WidgetPtr best;
@@ -349,14 +363,16 @@ WidgetPtr PaneManager::pickTouchWidget(Vec2F position, float minimumSize, PanePt
             || is<ListWidget>(widget) || is<SliderBarWidget>(widget);
         if (selectable && !visible.isEmpty() && widget->interactive() && !widget->mouseTransparent()) {
           Vec2F center(visible.center());
-          Vec2F half = Vec2F(visible.size()).piecewiseMax(Vec2F::filled(minimum)) / 2;
-          if (RectF::withCenter(center, half * 2).contains(guiPos)) {
+          float targetMinimum = is<ItemSlotWidget>(widget) ? minimum * 1.15f : minimum;
+          Vec2F half = Vec2F(visible.size()).piecewiseMax(Vec2F::filled(targetMinimum)) / 2;
+          if (RectF::withCenter(center, half * 2).contains(guiPos)
+              && candidatePane->screenBoundRect().contains(Vec2I(guiPos))) {
             float distance = (center - guiPos).magnitudeSquared();
             // Área visual tem precedência sobre a expansão de outro botão.
             float value = distance + (visible.contains(Vec2I(guiPos)) ? 0 : 1000000);
             if (is<ScrollArea>(widget) || is<ListWidget>(widget))
               value += 100000;
-            if (value < score) { score = value; best = widget; pane = candidatePane; }
+            if (value < score) { score = value; best = widget; pane = candidatePane; m_touchHitPosition = center * m_context->interfaceScale(); }
           }
         }
         if (is<ItemSlotWidget>(widget) || is<ButtonWidget>(widget))
@@ -377,11 +393,10 @@ WidgetPtr PaneManager::pickTouchWidget(Vec2F position, float minimumSize, PanePt
   return best;
 }
 
-void PaneManager::touchClick(MouseButton button, Vec2F position, bool shifting) {
+void PaneManager::touchClick(MouseButton button, Vec2F position, Maybe<bool> shifting) {
   bool oldShift = m_context->shiftHeld();
   sendInputEvent(MouseMoveEvent{{}, position, true, InputSource::Touch});
-  if (shifting)
-    m_context->setShiftHeld(true);
+  if (shifting) m_context->setShiftHeld(*shifting);
   sendInputEvent(MouseButtonDownEvent{button, position, InputSource::Touch});
   sendInputEvent(MouseButtonUpEvent{button, position, InputSource::Touch});
   m_context->setShiftHeld(oldShift);
@@ -415,7 +430,7 @@ bool PaneManager::handleTouchPointer(TouchPointerEvent const& event) {
       if (m_touchContact.owns(event.finger))
         return true;
       // O segundo contato só pode completar a transferência pendente.
-      if (touchInventorySlot(m_touchWidget) && m_touchGesture.tap()
+      if (touchInventorySlot(m_touchWidget) && m_touchItemAction == TouchInput::ItemAction::Move && m_touchGesture.tap()
           && (event.position - m_touchLast).magnitude() < event.minimumTargetPixels * 1.5f) {
         touchClick(MouseButton::Left, m_touchStart, true);
         m_touchGesture.cancel();
@@ -427,7 +442,7 @@ bool PaneManager::handleTouchPointer(TouchPointerEvent const& event) {
     m_touchThreshold = std::max(2.0f, event.minimumTargetPixels / 4.8f);
     m_touchWidget = pickTouchWidget(event.position, event.minimumTargetPixels, m_touchPane);
     bool centerTarget = is<ButtonWidget>(m_touchWidget) || is<ItemSlotWidget>(m_touchWidget);
-    m_touchStart = centerTarget ? Vec2F(m_touchWidget->screenBoundRect().center()) * m_context->interfaceScale() : event.position;
+    m_touchStart = centerTarget ? m_touchHitPosition : event.position;
     m_touchLast = event.position;
     m_touchLastTime = now;
     m_touchGesture.down(event.position[0], event.position[1], now);
@@ -448,7 +463,7 @@ bool PaneManager::handleTouchPointer(TouchPointerEvent const& event) {
   if (event.phase == TouchPhase::Move) {
     bool wasDragging = m_touchGesture.state == TouchInput::Gesture::State::Drag;
     bool dragging = m_touchGesture.move(event.position[0], event.position[1], m_touchThreshold);
-    if (dragging && touchInventorySlot(m_touchWidget)) {
+    if (dragging && touchInventorySlot(m_touchWidget) && TouchInput::itemDragAllowed(m_touchItemAction)) {
       if (!wasDragging) { touchClick(MouseButton::Left, m_touchStart); m_touchItemDrag = true; }
       sendInputEvent(MouseMoveEvent{{}, event.position, true, InputSource::Touch});
     } else if (dragging && is<SliderBarWidget>(m_touchWidget)) {
@@ -482,9 +497,15 @@ bool PaneManager::handleTouchPointer(TouchPointerEvent const& event) {
       // Cruzar a borda da janela não descarta o item no mundo. Se não há
       // slot de destino, o item permanece no cursor do inventário.
       if (touchInventorySlot(destination))
-        touchClick(MouseButton::Left, Vec2F(destination->screenBoundRect().center()) * m_context->interfaceScale());
+        touchClick(MouseButton::Left, m_touchHitPosition);
     } else if (m_touchGesture.tap()) {
-      if (m_touchWidget)
+      if (touchInventorySlot(m_touchWidget) && TouchInput::itemInspect(m_touchItemAction, false))
+        inspectTouchItem();
+      else if (touchInventorySlot(m_touchWidget) && TouchInput::itemSplit(m_touchItemAction)) {
+        touchClick(MouseButton::Right, m_touchStart, m_touchItemAction == TouchInput::ItemAction::Half);
+        m_touchItemAction = TouchInput::itemActionAfterTap(m_touchItemAction);
+      }
+      else if (m_touchWidget)
         touchClick(MouseButton::Left, m_touchStart);
       else if (!topPane({PaneLayer::ModalWindow})) {
         if (auto top = topPane({PaneLayer::Window}); top && !top->inWindow(Vec2I(event.position / m_context->interfaceScale())))
@@ -512,7 +533,7 @@ void PaneManager::updateTouchPointer(float dt) {
   }
   if (m_touchContact.active && is<ItemSlotWidget>(m_touchWidget)
       && m_touchGesture.longPress(Time::monotonicMilliseconds() / 1000.0))
-    touchClick(MouseButton::Right, m_touchStart);
+    inspectTouchItem();
   if (!m_touchContact.active && m_touchScroll) {
     auto scroll = as<ScrollArea>(m_touchScroll);
     m_touchScrollFraction += Vec2F(m_touchInertia[0].step(dt), m_touchInertia[1].step(dt));

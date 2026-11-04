@@ -78,6 +78,7 @@ String actionName(MobileTouchAction const& action) {
       return launcherTextStatic("touchAction.scrollUp", "Scroll Up");
     case MobileTouchActionKind::MouseWheelDown:
       return launcherTextStatic("touchAction.scrollDown", "Scroll Down");
+    case MobileTouchActionKind::MorePanel: return launcherTextStatic("touchElement.more", "More");
     case MobileTouchActionKind::QuickSlot: {
       String label = strf("{} {}", launcherTextStatic("shortcut.bar", "Bar"), action.quickSlot + 1);
       if (action.quickUse) label += strf(" / {}", launcherTextStatic("shortcut.holdSuffix", "hold to use"));
@@ -158,8 +159,11 @@ void loadTouchAimOptions(MobileTouchConfig& config, Json const& json) {
   config.lockOnEnabled = json.queryBool("touch.lockOnEnabled", false);
   config.lockOnPreferBoss = json.queryBool("touch.lockOnPreferBoss", true);
   config.lockOnRange = std::clamp(json.queryFloat("touch.lockOnRange", 40), 8.0f, 80.0f);
-  config.aimAttackMode = (TouchInput::AttackMode)std::clamp(json.queryInt("touch.aimAttackMode", 0), (int64_t)0, (int64_t)2);
+  config.aimAttackMode = (TouchInput::AttackMode)std::clamp(json.queryInt("touch.aimAttackMode", json.optQueryArray("touch.elements") ? 0 : 3), (int64_t)0, (int64_t)3);
   config.aimDeadzone = std::clamp(json.queryFloat("touch.aimDeadzone", 0.15f), 0.0f, 0.60f);
+  config.floatingMovement = json.queryBool("touch.floatingMovement", true);
+  config.panelLeft = json.queryBool("touch.panelLeft", false);
+  config.snapToGrid = json.queryBool("touch.snapToGrid", true);
   config.aimCurve = std::clamp(json.queryFloat("touch.aimCurve", 1.4f), 0.5f, 3.0f);
 }
 
@@ -253,7 +257,7 @@ PerformanceCounterMode perfCounterModeFromName(String const& name, PerformanceCo
 }
 
 std::vector<MobileTouchElement> defaultTouchElements() {
-  return {
+  std::vector<MobileTouchElement> elements = {
     {"joystick", launcherTextStatic("touchElement.joystick", "Joystick"), MobileTouchElementKind::Joystick, true, {0.14f, 0.78f}, 1.15f, keyAction(Key::Space), {}, {}, {}, {}},
     {"aimJoystick", launcherTextStatic("touchElement.aimJoystick", "Aim"), MobileTouchElementKind::AimJoystick, true, {0.66f, 0.78f}, 1.15f, noneAction(), {}, {}, {}, {}},
     {"leftHand", launcherTextStatic("touchElement.leftHand", "L"), MobileTouchElementKind::Button, true, {0.30f, 0.16f}, 0.92f, mouseAction(MouseButton::Left), {}, {}, {}, {}},
@@ -280,6 +284,50 @@ std::vector<MobileTouchElement> defaultTouchElements() {
       keyAction(Key::W), keyAction(Key::S), keyAction(Key::A), keyAction(Key::D)},
     {"perfCounter", launcherTextStatic("touchElement.perfCounter", "Perf"), MobileTouchElementKind::PerformanceCounter, false, {0.02f, 0.98f}, 1.0f, noneAction(), {}, {}, {}, {}}
   };
+  MobileTouchAction more; more.kind = MobileTouchActionKind::MorePanel;
+  elements.push_back({"crouch", launcherTextStatic("touchElement.crouch", "Down"), MobileTouchElementKind::Button, true, {.20f,.60f}, 1, keyAction(Key::S), {}, {}, {}, {}});
+  elements.push_back({"more", launcherTextStatic("touchElement.more", "More"), MobileTouchElementKind::Button, true, {.96f,.25f}, 1, more, {}, {}, {}, {}, MobileTouchPressMode::SinglePress});
+  for (auto& e : elements) {
+    if (e.kind == MobileTouchElementKind::PerformanceCounter) continue;
+    bool stick = e.kind == MobileTouchElementKind::Joystick || e.kind == MobileTouchElementKind::AimJoystick || e.kind == MobileTouchElementKind::DPad;
+    e.diameterDp = stick ? 128 : e.id == "jump" ? 56 : e.id == "crouch" ? 44 : 48;
+    e.size = 1;
+    e.adaptive = true;
+    e.panel = !stick && e.id != "jump" && e.id != "crouch" && e.id != "interact"
+        && e.id != "rightHand" && e.id != "tech" && e.id != "targetLock" && e.id != "pause" && e.id != "more";
+    if (e.id == "leftHand" || e.id == "quick1" || e.id == "quick2" || e.id == "quick3") e.enabled = true;
+    auto c = TouchLayout::placement(e.id.utf8(), {874,393,1,1}, e.diameterDp);
+    e.position = {c.x / 874, c.y / 393};
+  }
+  return elements;
+}
+
+void applyTouchLayout(std::vector<MobileTouchElement>& elements, int preset) {
+  auto incoming = defaultTouchElements();
+  for (auto& e : incoming) {
+    if (preset == 1) e.enabled = e.id == "joystick" || e.id == "aimJoystick" || e.id == "jump" || e.id == "interact" || e.id == "pause";
+    if (preset == 2 && (e.id == "miningMode" || e.id == "singleBlock")) { e.enabled = true; e.panel = false; }
+    if (preset == 3) e.enabled = e.id == "pause" || e.id == "more" || e.panel;
+  }
+  TouchInput::mergeLayout(elements, incoming, [](auto& old, auto const& value) {
+    old.position = value.position; old.size = value.size; old.diameterDp = value.diameterDp;
+    old.adaptive = value.adaptive; old.panel = value.panel; old.enabled = value.enabled;
+  });
+  for (auto& e : elements) {
+    bool builtIn = std::any_of(incoming.begin(),incoming.end(),[&](auto const& value) { return value.id==e.id; });
+    if(!builtIn && e.kind==MobileTouchElementKind::Button) { e.panel=true; e.diameterDp=std::max(44.f,e.diameterDp); }
+  }
+}
+
+TouchLayout::Circle touchElementCircle(MobileTouchElement const& e, MobileTouchConfig const& config, TouchLayout::Metrics metrics) {
+  if (e.diameterDp > 0) {
+    if (e.adaptive) return TouchLayout::placement(e.id.utf8(), metrics, e.diameterDp, e.size);
+    return TouchLayout::clamp({e.position[0] * metrics.width, e.position[1] * metrics.height,
+        TouchLayout::radius(metrics, e.diameterDp, e.size)}, metrics);
+  }
+  float radius = TouchInput::controlRadius(std::min(metrics.width, metrics.height), config.size) * std::clamp(e.size,.45f,2.4f);
+  if (e.kind == MobileTouchElementKind::Button) radius *= .55f;
+  return {e.position[0] * metrics.width, e.position[1] * metrics.height, radius};
 }
 
 std::vector<MobileGamepadBinding> defaultGamepadBindings() {
@@ -376,6 +424,7 @@ List<Key> keysFromJson(Json const& json) {
 }
 
 Json jsonFromTouchAction(MobileTouchAction const& action) {
+  if (action.kind == MobileTouchActionKind::MorePanel) return JsonObject{{"type", "morePanel"}};
   if (action.kind == MobileTouchActionKind::KeyMacro)
     return JsonObject{{"type", "keys"}, {"keys", jsonFromKeys(action.keys)}, {"sequential", action.macroSequential}};
   if (action.kind == MobileTouchActionKind::MouseButton)
@@ -407,6 +456,7 @@ Json jsonFromTouchAction(MobileTouchAction const& action) {
 
 MobileTouchAction touchActionFromJson(Json const& json, MobileTouchAction def) {
   auto type = json.getString("type", "key");
+  if (type.equals("morePanel", String::CaseInsensitive)) { def.kind = MobileTouchActionKind::MorePanel; return def; }
   if (type.equals("keys", String::CaseInsensitive) || type.equals("macro", String::CaseInsensitive)) {
     auto keys = keysFromJson(json);
     return keys.empty() ? def : macroAction(keys, json.getBool("sequential", true));
@@ -446,6 +496,7 @@ Json jsonFromTouchElement(MobileTouchElement const& element) {
     {"enabled", element.enabled},
     {"position", JsonArray{element.position[0], element.position[1]}},
     {"size", element.size},
+    {"diameterDp", element.diameterDp}, {"adaptive", element.adaptive}, {"panel", element.panel},
     {"pressMode", pressModeName(element.pressMode)},
     {"aimSensitivity", element.aimSensitivity},
     {"opacity", element.opacity},
@@ -469,6 +520,9 @@ MobileTouchElement touchElementFromJson(Json const& json, MobileTouchElement def
   def.kind = elementKindFromName(json.getString("kind", elementKindName(def.kind)));
   def.enabled = json.getBool("enabled", def.enabled);
   def.size = json.getFloat("size", def.size);
+  def.diameterDp = std::clamp(json.getFloat("diameterDp", 0), 0.f, 256.f);
+  def.adaptive = json.getBool("adaptive", false);
+  def.panel = json.getBool("panel", false);
   def.opacity = std::clamp(json.getFloat("opacity", def.opacity), 0.0f, 1.0f);
   def.pressMode = pressModeFromName(json.getString("pressMode", pressModeName(def.pressMode)), def.pressMode);
   def.aimSensitivity = json.getFloat("aimSensitivity", def.aimSensitivity);
@@ -496,6 +550,8 @@ JsonArray jsonFromTouchElements(std::vector<MobileTouchElement> const& elements)
 std::vector<MobileTouchElement> touchElementsFromConfig(Json const& config) {
   auto elements = defaultTouchElements();
   if (auto saved = config.optQueryArray("touch.elements")) {
+    // Old layouts retain their geometry and visibility, including custom IDs.
+    for (auto& e : elements) if (e.id == "more" || e.id == "crouch") e.enabled = false;
     for (auto const& savedElementJson : *saved) {
       String id = savedElementJson.getString("id", "");
       bool merged = false;
@@ -511,6 +567,21 @@ std::vector<MobileTouchElement> touchElementsFromConfig(Json const& config) {
     }
   }
   return elements;
+}
+
+std::vector<MobileTouchElement> touchElementsForScreen(Json const& config, Vec2U size) {
+  auto name=config.queryString("touch.activeLayout", "");
+  if(name.empty()) return touchElementsFromConfig(config);
+  auto orientation=size[0]>=size[1] ? "landscape" : "portrait";
+  float aspect=(float)size[0]/std::max(1u,size[1]), distance=1e30f;
+  Json selected;
+  for(auto const& profile : config.queryArray("touch.layoutProfiles",{})) {
+    if(profile.getString("name","")!=name || profile.getString("orientation",orientation)!=orientation) continue;
+    float delta=std::abs(profile.getFloat("aspect",aspect)-aspect);
+    if(delta<distance) { selected=profile; distance=delta; }
+  }
+  if(selected.isNull()) return touchElementsFromConfig(config);
+  return touchElementsFromConfig(JsonObject{{"touch",JsonObject{{"elements",selected.getArray("elements",{})}}}});
 }
 
 String gamepadStickModeName(MobileGamepadStickMode mode) {
@@ -673,13 +744,14 @@ std::vector<MobileGamepadBinding> gamepadBindingsFromConfig(Json const& config) 
 
 class MobileTouchInputAdapter::Impl {
 public:
-  explicit Impl(Vec2U* windowSize, Vec2U* renderCanvasSize = nullptr, float* displayScale = nullptr, SafeAreaInsets* safeArea = nullptr)
-    : m_windowSize(windowSize), m_renderCanvasSize(renderCanvasSize), m_displayScalePtr(displayScale), m_safeAreaPtr(safeArea) {
+  explicit Impl(Vec2U* windowSize, Vec2U* renderCanvasSize = nullptr, float* displayScale = nullptr, SafeAreaInsets* safeArea = nullptr, SafeAreaInsets* renderSafeArea = nullptr)
+    : m_windowSize(windowSize), m_renderCanvasSize(renderCanvasSize), m_displayScalePtr(displayScale), m_safeAreaPtr(safeArea), m_renderSafeAreaPtr(renderSafeArea ? renderSafeArea : safeArea) {
     m_generatedEvents.reserve(256);
     rebuildOverlayCache();
   }
 
   void setConfig(MobileTouchConfig config) {
+    m_geometryDirty = true;
     if (!m_gyroAvailable)
       config.gyroEnabled = false;
     if (!config.directTouchGestures && m_config.directTouchGestures)
@@ -713,6 +785,23 @@ public:
     rebuildOverlayCache();
   }
 
+  void setHud(TouchLayout::Hud hud) {
+    auto game=gameViewport(), touch=touchViewport();
+    for(size_t i=0;i<hud.count;++i) {
+      auto& rect=hud.regions[i];
+      rect.left=(rect.left*game.width+game.left-touch.left)/touch.width;
+      rect.right=(rect.right*game.width+game.left-touch.left)/touch.width;
+      rect.top=(rect.top*game.height+game.top-touch.top)/touch.height;
+      rect.bottom=(rect.bottom*game.height+game.top-touch.top)/touch.height;
+    }
+    if (m_hud.count != hud.count) m_geometryDirty = true;
+    for(size_t i=0;i<hud.count;++i) {
+      auto a=m_hud.regions[i], b=hud.regions[i];
+      if(a.left!=b.left || a.right!=b.right || a.top!=b.top || a.bottom!=b.bottom) m_geometryDirty=true;
+    }
+    m_hud = hud; updateGeometry();
+  }
+
   void setContext(unsigned mode) {
     if (mode != m_context) {
       cancelAll();
@@ -725,6 +814,12 @@ public:
   }
 
   void endFrame() {
+    bool panelHeld = false;
+    for (auto const& entry : m_fingers) {
+      auto element = findElement(entry.second.elementId);
+      panelHeld |= element && element->panel;
+    }
+    m_drawer.tick(Time::monotonicMilliseconds() / 1000.0, panelHeld);
     if (m_config.enabled && m_context == 0)
       emitActionEdges();
   }
@@ -762,6 +857,7 @@ public:
 
     Vec2F pos = toScreen(event.tfinger.x, event.tfinger.y);
     uint64_t finger = event.tfinger.fingerID;
+    updateGeometry();
     if (m_context != 0) {
       TouchPhase phase = event.type == SDL_EVENT_FINGER_DOWN ? TouchPhase::Down
           : event.type == SDL_EVENT_FINGER_MOTION ? TouchPhase::Move
@@ -778,7 +874,7 @@ public:
     else if (event.type == SDL_EVENT_FINGER_MOTION)
       updateFinger(finger, pos);
     else if (event.type == SDL_EVENT_FINGER_CANCELED)
-      cancelAll();
+      releaseFinger(finger, pos, true);
     else
       releaseFinger(finger, pos);
 
@@ -805,6 +901,7 @@ public:
       }
     }
 
+    m_drawer.close();
     m_aimAttack.release(m_config.aimAttackMode, true);
     m_aimAttackHeld = false;
     m_lastAimFrameMs = 0;
@@ -876,212 +973,137 @@ public:
   }
 
   void renderShortcutIcons(Application& application) {
+    updateGeometry();
     m_shortcutRendered.assign(m_elements.size(), false);
     if (!m_config.enabled || m_context != 0 || application.touchInputMode() != 0) return;
     float opacity = overlayOpacity();
-    Vec2F scale = inputCanvasSize().piecewiseDivide(Vec2F(*m_windowSize).piecewiseMax(Vec2F::filled(1)));
     for (size_t i = 0; i < m_elements.size(); ++i) {
       auto const& element = m_elements[i];
-      if (!element.enabled || element.opacity <= 0 || element.kind != MobileTouchElementKind::Button
+      if (!visible(element) || element.opacity <= 0 || element.kind != MobileTouchElementKind::Button
           || element.action.kind != MobileTouchActionKind::QuickSlot) continue;
       Vec2F center = elementCenter(element);
-      auto canvas = inputCanvasSize();
-      auto aligned = TouchInput::shortcutCenter({center[0], center[1]}, {(float)(*m_windowSize)[0], (float)(*m_windowSize)[1]},
-          {canvas[0], canvas[1]}, {m_safeAreaPtr ? (float)m_safeAreaPtr->left : 0, m_safeAreaPtr ? (float)m_safeAreaPtr->top : 0});
-      center = {aligned[0], aligned[1]};
-      float radius = controlRadius() * std::clamp(element.size, .45f, 2.4f) * .55f * std::min(scale[0], scale[1]);
+      auto at=toInputSpace(center);
+      auto edge=toInputSpace(center+Vec2F(elementRadius(element),0));
+      float radius=(edge-at).magnitude();
+      center=at;
       m_shortcutRendered[i] = application.renderTouchShortcut({(unsigned)element.action.quickSlot, center, radius, opacity * element.opacity});
     }
   }
 
   void drawOverlay(float fps, bool directionalMining) {
-    if (!m_config.enabled || m_context != 0)
-      return;
-
-    // At least one enabled PerformanceCounter element needs LogMap populated
-    // for its "Detailed" tier; LogMap::set() calls are near-free early-outs
-    // elsewhere in the engine when nothing observes the map, so only pay for
-    // it while a detailed counter is actually on screen.
-    bool wantsDetailedPerf = false;
-    for (auto const& element : m_elements) {
-      if (element.enabled && element.kind == MobileTouchElementKind::PerformanceCounter
-          && element.perfCounterMode == PerformanceCounterMode::Detailed) {
-        wantsDetailedPerf = true;
-        break;
+    if (!m_config.enabled || m_context != 0) return;
+    updateGeometry();
+    auto draw = ImGui::GetForegroundDrawList();
+    auto scale = physicalToDrawScale();
+    float rs = std::min(scale[0], scale[1]);
+    float density = layoutMetrics().dp() / rs;
+    auto ip = [&](Vec2F p) {
+      return ImVec2((p[0] + (m_safeAreaPtr ? m_safeAreaPtr->left : 0)) / scale[0],
+          (p[1] + (m_safeAreaPtr ? m_safeAreaPtr->top : 0)) / scale[1]);
+    };
+    float opacity = overlayOpacity();
+    float thickness = std::max(1.f, 2 * density);
+    m_overlayLabels.clear();
+    bool detailed = false;
+    for (size_t i = 0; i < m_elements.size(); ++i) {
+      auto const& e = m_elements[i];
+      if (!visible(e)) continue;
+      auto& cache = m_overlayCache[i];
+      auto geometry = m_geometry[i];
+      Vec2F center{geometry.x, geometry.y};
+      bool move = e.kind == MobileTouchElementKind::Joystick;
+      bool aim = e.kind == MobileTouchElementKind::AimJoystick;
+      bool live = move ? m_joystickActive && m_joystickElementId == e.id
+          : aim ? m_aimJoystickActive && m_aimJoystickElementId == e.id : heldElement(e.id);
+      bool active = live || (e.action.kind == MobileTouchActionKind::MiningModeToggle && directionalMining)
+          || (e.action.kind == MobileTouchActionKind::TargetLockToggle && m_hud.locked)
+          || (e.action.kind == MobileTouchActionKind::MorePanel && m_drawer.open)
+          || (e.action.kind == MobileTouchActionKind::GyroToggle && m_gyroRuntimeEnabled && m_config.gyroEnabled);
+      if (move && live) center = m_joystickOrigin;
+      if (aim && live) center = m_aimJoystickOrigin;
+      ImVec2 c = ip(center);
+      float radius = geometry.radius / rs;
+      float op = std::clamp(opacity * e.opacity, 0.f, 1.f);
+      ImU32 ink = IM_COL32(231,240,250,(int)(255 * std::min(1.f, op * 2)));
+      ImU32 accent = IM_COL32(105,202,255,(int)(255 * std::min(1.f,op * 2.5f)));
+      ImU32 border = active ? accent : ink;
+      bool itemIcon = i < m_shortcutRendered.size() && m_shortcutRendered[i];
+      if (e.kind == MobileTouchElementKind::PerformanceCounter) {
+        detailed |= e.perfCounterMode == PerformanceCounterMode::Detailed;
+        if (Time::monotonicMilliseconds() >= cache.nextPerfMs) {
+          perfCounterText(e.perfCounterMode, fps, cache.perf.data(), cache.perf.size());
+          cache.nextPerfMs = Time::monotonicMilliseconds() + 250;
+        }
+        m_overlayLabels.push_back({c,cache.perf.data(),0,e.opacity});
+        continue;
       }
-    }
-    LogMap::setObserved(wantsDetailedPerf);
-
-    float radius = controlRadius();
-
-    Vec2F drawScale = physicalToDrawScale();
-    float radiusScale = std::max(1.0f, std::min(drawScale[0], drawScale[1]));
-    // Convert canvas-pixel positions to ImGui window coordinates.
-    // Safe-area insets are in physical pixels; divide by drawScale to get ImGui
-    // units and add as an offset so buttons are placed inside the safe area.
-    float saOffX = m_safeAreaPtr ? (float)m_safeAreaPtr->left / drawScale[0] : 0.0f;
-    float saOffY = m_safeAreaPtr ? (float)m_safeAreaPtr->top  / drawScale[1] : 0.0f;
-    auto ip = [drawScale, saOffX, saOffY](Vec2F const& v) {
-      return ImVec2(saOffX + v[0] / drawScale[0], saOffY + v[1] / drawScale[1]);
-    };
-
-    ImDrawList* draw = ImGui::GetForegroundDrawList();
-
-    // Always-visible contrast, using Minecraft's crosshair technique: the button
-    // geometry is drawn with an inversion (difference) blend so each stroke shows
-    // as the photographic negative of whatever is behind it and can never wash
-    // out against a matching background. The opacity setting is remapped to a
-    // contrast "strength": at full strength the source is pure white (result =
-    // 1 - background); as it drops, the source fades toward mid-grey, where the
-    // inversion result approaches the background and the overlay fades away.
-    // (The inversion blend keys off source RGB, ignoring alpha coverage, so it
-    // suits solid shapes; text is handled separately with an outline below.)
-    float op = overlayOpacity();
-    auto contrast = [&op](float c) { return 0.5f + (c - 0.5f) * op; };
-    auto contrastColor = [&contrast](float r, float g, float b) {
-      return IM_COL32((int)std::lround(contrast(r) * 255.0f),
-                      (int)std::lround(contrast(g) * 255.0f),
-                      (int)std::lround(contrast(b) * 255.0f), 255);
-    };
-
-    float thickness = std::max(1.0f, m_config.outlineThickness);
-
-    // Text can't share the inversion blend (font coverage is stored in alpha, so
-    // inverting by RGB would flip whole glyph quads). Labels instead get a dark
-    // outline behind a light glyph so they stay legible on any background.
-
-
-    auto& labels = m_overlayLabels;
-    labels.clear();
-
-    // Shape pass: switch to the inversion blend for the button geometry, then
-    // restore ImGui's default blend state afterwards.
-    // A quiet alpha-blended backing separates the controls from detailed
-    // scenery. Draw it before the inversion pass; zero opacity stays invisible.
-    // Floating sticks use the same origin as their ring, not the resting spot.
-    for (auto const& element : m_elements) {
-      if (element.action.kind == MobileTouchActionKind::QuickSlot) continue;
-      if (!element.enabled || element.opacity <= 0 || element.kind == MobileTouchElementKind::PerformanceCounter)
-        continue;
-      if (!m_config.lockOnEnabled && (element.action.kind == MobileTouchActionKind::TargetLockToggle
-          || element.action.kind == MobileTouchActionKind::TargetLockNext))
-        continue;
-      Vec2F center = elementCenter(element);
-      if (element.kind == MobileTouchElementKind::Joystick && m_joystickActive && m_joystickElementId == element.id)
-        center = m_joystickOrigin;
-      if (element.kind == MobileTouchElementKind::AimJoystick && m_aimJoystickActive && m_aimJoystickElementId == element.id)
-        center = m_aimJoystickOrigin;
-      float r = radius * std::clamp(element.size, .45f, 2.4f) / radiusScale;
-      if (element.kind == MobileTouchElementKind::Button) r *= .55f;
-      float opacity = op * std::clamp(element.opacity, 0.0f, 1.0f);
-      draw->AddCircleFilled(ip(center), r, IM_COL32(12, 18, 26, (int)(140 * opacity)), 32);
-    }
-    draw->AddCallback(applyContrastBlendCallback, nullptr);
-
-    float globalOpacity = op;
-    for (size_t index=0; index<m_elements.size(); ++index) {
-      auto const& element=m_elements[index];
-      auto& cache=m_overlayCache[index];
-      if (!element.enabled || (!m_config.lockOnEnabled && (element.action.kind == MobileTouchActionKind::TargetLockToggle || element.action.kind == MobileTouchActionKind::TargetLockNext)) || element.opacity <= 0)
-        continue;
-      op = globalOpacity * std::clamp(element.opacity, 0.0f, 1.0f);
-      ImU32 base=contrastColor(1,1,1), fill=contrastColor(.31f,.63f,1);
-      size_t firstLabel=labels.size();
-      Vec2F center = elementCenter(element);
-      float elementRadius = radius * std::clamp(element.size, 0.45f, 2.4f);
-      float drawRadius = elementRadius / radiusScale;
-
-      if (element.kind == MobileTouchElementKind::Joystick) {
-        bool joystickLive = m_joystickActive && m_joystickElementId == element.id;
-        // The ring follows the thumb's touch-down point (floating joystick),
-        // and snaps back to its resting spot on release.
-        ImVec2 ringCenter = ip(joystickLive ? m_joystickOrigin : center);
-        draw->AddCircle(ringCenter, drawRadius, base, 48, thickness);
-        if (!joystickLive) {
-          // Idle hint: four small arrows on the ring show it is a move stick.
-          float a = drawRadius * 0.13f;
-          float d = drawRadius * 0.72f;
-          draw->AddTriangleFilled(ImVec2(ringCenter.x, ringCenter.y - d - a), ImVec2(ringCenter.x - a, ringCenter.y - d + a), ImVec2(ringCenter.x + a, ringCenter.y - d + a), base);
-          draw->AddTriangleFilled(ImVec2(ringCenter.x, ringCenter.y + d + a), ImVec2(ringCenter.x - a, ringCenter.y + d - a), ImVec2(ringCenter.x + a, ringCenter.y + d - a), base);
-          draw->AddTriangleFilled(ImVec2(ringCenter.x - d - a, ringCenter.y), ImVec2(ringCenter.x - d + a, ringCenter.y - a), ImVec2(ringCenter.x - d + a, ringCenter.y + a), base);
-          draw->AddTriangleFilled(ImVec2(ringCenter.x + d + a, ringCenter.y), ImVec2(ringCenter.x + d - a, ringCenter.y - a), ImVec2(ringCenter.x + d - a, ringCenter.y + a), base);
+      // Every shape and glyph uses the existing ImGui white/font atlas and
+      // normal alpha blending. No GL callbacks, new textures or texture uploads.
+      float pressedRadius = radius * (live && !move && !aim ? .92f : 1.f);
+      if (!itemIcon) {
+        draw->AddCircleFilled(ImVec2(c.x,c.y+2*density), pressedRadius+2*density, IM_COL32(0,0,0,(int)(60*op)),32);
+        draw->AddCircleFilled(c,pressedRadius,IM_COL32(10,20,35,(int)((live ? 1.85f : 1.f)*255*op)),32);
+      }
+      draw->AddCircle(c,pressedRadius,border,32,thickness);
+      if (move || aim) {
+        ImVec2 knob = live ? ip(move ? m_joystickCurrent : m_aimJoystickCurrent) : c;
+        draw->AddCircleFilled(knob,radius*.35f,IM_COL32(156,187,213,(int)(125*op)),24);
+        draw->AddCircle(knob,radius*.35f,ink,24,thickness);
+        float k = radius * .18f;
+        if (aim) {
+          draw->AddLine(ImVec2(knob.x-k,knob.y),ImVec2(knob.x+k,knob.y),ink,thickness);
+          draw->AddLine(ImVec2(knob.x,knob.y-k),ImVec2(knob.x,knob.y+k),ink,thickness);
         } else {
-          draw->AddCircle(ringCenter, drawRadius * 0.12f, base, 16, thickness);
+          drawButtonIcon(draw,knob,radius*.35f,ButtonIcon::Wheel,ink,thickness);
         }
-        if (joystickLive)
-          draw->AddCircleFilled(ip(m_joystickCurrent), drawRadius * 0.45f, fill, 32);
-      } else if (element.kind == MobileTouchElementKind::AimJoystick) {
-        draw->AddCircle(ip(center), drawRadius, base, 48, thickness);
-        {
-          // Crosshair so the aim stick reads as "aim" at a glance.
-          ImVec2 cc = ip(center);
-          float inner = drawRadius * 0.18f;
-          float outer = drawRadius * 0.42f;
-          draw->AddLine(ImVec2(cc.x - outer, cc.y), ImVec2(cc.x - inner, cc.y), base, thickness);
-          draw->AddLine(ImVec2(cc.x + inner, cc.y), ImVec2(cc.x + outer, cc.y), base, thickness);
-          draw->AddLine(ImVec2(cc.x, cc.y - outer), ImVec2(cc.x, cc.y - inner), base, thickness);
-          draw->AddLine(ImVec2(cc.x, cc.y + inner), ImVec2(cc.x, cc.y + outer), base, thickness);
-          draw->AddCircleFilled(cc, std::max(1.5f, thickness), base, 12);
-        }
-        if (m_aimJoystickActive && m_aimJoystickElementId == element.id)
-          draw->AddCircleFilled(ip(m_aimJoystickCurrent), drawRadius * 0.35f, fill, 32);
-      } else if (element.kind == MobileTouchElementKind::DPad) {
-        drawDPad(draw, ip(center), drawRadius, cache, base, fill, thickness, labels);
-      } else if (element.kind == MobileTouchElementKind::PerformanceCounter) {
-        // Passive display, not a touch target: no shape, just queued text
-        // drawn in the un-blended text pass below (same as other labels).
-        int64_t now=Time::monotonicMilliseconds();
-        if(now >= cache.nextPerfMs || cache.font != ImGui::GetFont() || cache.baseFontSize != ImGui::GetFontSize()) {
-          perfCounterText(element.perfCounterMode, fps, cache.perf.data(), cache.perf.size());
-          cache.textSize=ImGui::CalcTextSize(cache.perf.data());
-          cache.font=ImGui::GetFont(); cache.baseFontSize=ImGui::GetFontSize(); cache.nextPerfMs=now+250;
-        }
-        ImVec2 pos = ip(center);
-        ImVec2 size = cache.textSize;
-        ImVec2 screen = ImGui::GetIO().DisplaySize;
-        pos.x = std::clamp(pos.x, 1.0f, std::max(1.0f, screen.x - size.x - 1.0f));
-        pos.y = std::clamp(pos.y, 1.0f, std::max(1.0f, screen.y - size.y - 1.0f));
-        labels.push_back({pos, cache.perf.data()});
+      } else if (e.kind == MobileTouchElementKind::DPad) {
+        drawDPad(draw,c,radius,cache,ink,accent,thickness,m_overlayLabels);
       } else {
-        bool held = heldElement(element.id)
-            || (element.action.kind == MobileTouchActionKind::GyroToggle && m_gyroAvailable && m_config.gyroEnabled && m_gyroRuntimeEnabled);
-        if (element.action.kind == MobileTouchActionKind::MiningModeToggle)
-          held = directionalMining;
-        bool itemIcon = index < m_shortcutRendered.size() && m_shortcutRendered[index];
-        drawButton(draw, ip(center), drawRadius * .55f, itemIcon ? false : held,
-            itemIcon ? "" : element.label.utf8Ptr(), base, fill, thickness, labels, cache, itemIcon ? ButtonIcon::None : cache.icon);
-        if (itemIcon) {
-          ImVec2 pos = ip(center);
-          ImVec2 textSize = ImGui::CalcTextSize(element.label.utf8Ptr());
-          labels.push_back({ImVec2(pos.x - textSize.x * .5f, pos.y + drawRadius * .60f), element.label.utf8Ptr()});
-          if (held) draw->AddCircle(pos, drawRadius * .65f, fill, 48, thickness);
+        size_t first = m_overlayLabels.size();
+        if (!itemIcon) {
+          if (cache.icon == ButtonIcon::None)
+            queueButtonLabel(c,pressedRadius,e.label.utf8Ptr(),m_overlayLabels,cache);
+          else drawButtonIcon(draw,c,pressedRadius,cache.icon,ink,thickness);
         }
-        char const* badge = element.action.kind == MobileTouchActionKind::MiningModeToggle
-            ? (directionalMining ? "DIR" : "LIVRE")
-            : element.action.kind == MobileTouchActionKind::TouchHandSwap
-                ? (m_aimSecondary ? "MAO R" : "MAO L") : nullptr;
-        if (badge) {
-          ImVec2 pos = ip(center);
-          float fontSize = ImGui::GetFontSize();
-          ImVec2 size = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0, badge);
-          labels.push_back({ImVec2(pos.x - size.x * .5f, pos.y + drawRadius * .60f), badge, fontSize});
-        }
+        for (size_t j=first;j<m_overlayLabels.size();++j) m_overlayLabels[j].opacity=e.opacity;
+        // State is conveyed by the icon/ring; long translated badges never
+        // protrude into the next control or across the gameplay view.
+        if (active) draw->AddCircleFilled(ImVec2(c.x+radius*.60f,c.y-radius*.60f),3*density,accent,12);
       }
-      for (size_t label=firstLabel; label<labels.size(); ++label) labels[label].opacity=element.opacity;
     }
-
-    // Restore the default alpha blend before drawing text on top of the shapes.
-    draw->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
-
-    for (auto const& label : labels) {
-      ImU32 color=IM_COL32(255,255,255,(int)(230*globalOpacity*label.opacity));
-      ImU32 outline=IM_COL32(0,0,0,(int)(210*globalOpacity*label.opacity));
-      drawLabelWithOutline(draw, label.pos, label.text, color, outline, label.fontSize);
-    }
+    LogMap::setObserved(detailed);
+    for (auto const& label : m_overlayLabels)
+      drawLabelWithOutline(draw,label.pos,label.text,IM_COL32(240,245,255,(int)(255*std::min(1.f,opacity*2)*label.opacity)),
+          IM_COL32(0,0,0,(int)(255*opacity*label.opacity)),label.fontSize);
   }
 
   bool overlayEnabled() const {
     return m_config.enabled;
+  }
+
+  static void drawPreviewControl(ImDrawList* draw, MobileTouchElement const& e, Vec2F center, float radius, float opacity, bool selected) {
+    ImVec2 c(center[0],center[1]);
+    ImU32 ink=IM_COL32(231,240,250,(int)(255*std::min(1.f,opacity*2)));
+    ImU32 accent=selected ? IM_COL32(105,202,255,255) : ink;
+    draw->AddCircleFilled(c,radius,IM_COL32(10,20,35,(int)(255*opacity)),32);
+    draw->AddCircle(c,radius,accent,32,2);
+    if(e.kind==MobileTouchElementKind::Joystick || e.kind==MobileTouchElementKind::AimJoystick || e.kind==MobileTouchElementKind::DPad) {
+      draw->AddCircle(c,radius*.35f,ink,24,2);
+      draw->AddLine(ImVec2(c.x-radius*.2f,c.y),ImVec2(c.x+radius*.2f,c.y),ink,2);
+      draw->AddLine(ImVec2(c.x,c.y-radius*.2f),ImVec2(c.x,c.y+radius*.2f),ink,2);
+    } else if(e.kind==MobileTouchElementKind::PerformanceCounter) {
+      draw->AddText(c,ink,"60 FPS");
+    } else {
+      auto icon=buttonIconFor(e);
+      if(icon!=ButtonIcon::None) drawButtonIcon(draw,c,radius,icon,ink,2);
+      else {
+        float font=std::max(8.f,radius*.48f);
+        std::array<char,96> label{};
+        TouchLayout::fitLabel(label.data(),label.size(),e.label.utf8(),radius*1.55f,[&](char const* t) { return ImGui::GetFont()->CalcTextSizeA(font,FLT_MAX,0,t).x; });
+        ImVec2 text=ImGui::GetFont()->CalcTextSizeA(font,FLT_MAX,0,label.data());
+        draw->AddText(ImGui::GetFont(),font,ImVec2(c.x-text.x*.5f,c.y-text.y*.5f),ink,label.data());
+      }
+    }
   }
 
 private:
@@ -1129,12 +1151,70 @@ private:
     return {w, h};
   }
 
+  TouchLayout::Metrics layoutMetrics() const {
+    auto size = canvasSize();
+    return {size[0], size[1], m_displayScalePtr ? *m_displayScalePtr : 1, m_config.size};
+  }
+  bool visible(MobileTouchElement const& e) const {
+    size_t i = &e - m_elements.data();
+    return e.enabled && i < m_geometry.size() && m_geometry[i].visible
+        && (m_config.lockOnEnabled || (e.action.kind != MobileTouchActionKind::TargetLockToggle && e.action.kind != MobileTouchActionKind::TargetLockNext));
+  }
+  void updateGeometry() {
+    auto metrics = layoutMetrics();
+    if (!m_geometryDirty && metrics.width==m_previousMetrics.width && metrics.height==m_previousMetrics.height
+        && metrics.density==m_previousMetrics.density && metrics.scale==m_previousMetrics.scale
+        && m_drawer.open==m_previousDrawer.open && m_drawer.page==m_previousDrawer.page) return;
+    m_previousMetrics=metrics; m_geometryDirty=false;
+    m_geometry.resize(m_elements.size());
+    size_t panelCount = 0;
+    for (size_t i = 0; i < m_elements.size(); ++i) {
+      auto const& e = m_elements[i];
+      auto c = touchElementCircle(e,m_config,metrics);
+      c.visible = e.enabled && !e.panel;
+      if (!m_config.lockOnEnabled && (e.action.kind == MobileTouchActionKind::TargetLockToggle || e.action.kind == MobileTouchActionKind::TargetLockNext)) c.visible = false;
+      if (e.action.kind == MobileTouchActionKind::MorePanel && m_config.panelLeft) c.x = metrics.width - c.x;
+      if (c.visible && e.adaptive && e.kind != MobileTouchElementKind::PerformanceCounter)
+        c = TouchLayout::avoid(c,metrics,m_hud,m_geometry.data(),i);
+      m_geometry[i] = c;
+      panelCount += e.enabled && e.panel;
+    }
+    TouchLayout::Circle menu{}, movement{}, aim{};
+    menu.visible=movement.visible=aim.visible=false;
+    for(size_t i=0;i<m_elements.size();++i) {
+      if(m_elements[i].id=="more") menu=m_geometry[i];
+      if(m_elements[i].kind==MobileTouchElementKind::Joystick) movement=m_geometry[i];
+      if(m_elements[i].kind==MobileTouchElementKind::AimJoystick) aim=m_geometry[i];
+    }
+    auto cells=TouchLayout::panelCells(metrics,m_hud,m_config.panelLeft,menu,movement,aim);
+    size_t capacity = std::max<size_t>(1,cells.count);
+    m_panelPages = std::max<size_t>(1,(panelCount+capacity-1)/capacity);
+    m_drawer.page = std::min(m_drawer.page,m_panelPages-1);
+    size_t index = 0;
+    for (size_t i=0;i<m_elements.size();++i) {
+      auto const& e=m_elements[i];
+      if (!e.enabled || !e.panel) continue;
+      auto c=cells.cells[index%capacity];
+      c.visible=cells.count && m_drawer.open && index/capacity==m_drawer.page;
+      if (!m_config.lockOnEnabled && (e.action.kind==MobileTouchActionKind::TargetLockToggle || e.action.kind==MobileTouchActionKind::TargetLockNext)) c.visible=false;
+      m_geometry[i]=c;
+      ++index;
+    }
+    // The drawer temporarily replaces any intersecting edge controls. Existing
+    // owners keep receiving move/up/cancel events and never transfer pointers.
+    if (m_drawer.open) for (size_t i=0;i<m_elements.size();++i) {
+      if (m_elements[i].panel || m_elements[i].action.kind==MobileTouchActionKind::MorePanel) continue;
+      for (size_t j=0;j<m_elements.size();++j)
+        if (m_elements[j].panel && !TouchLayout::separated(m_geometry[i],m_geometry[j],8*metrics.dp())) m_geometry[i].visible=false;
+    }
+    m_previousDrawer=m_drawer;
+  }
   Vec2F elementCenter(MobileTouchElement const& element) const {
-    Vec2F s = canvasSize();
-    return {
-      std::clamp(element.position[0], 0.02f, 0.98f) * s[0],
-      std::clamp(element.position[1], 0.02f, 0.98f) * s[1]
-    };
+    auto const& c = m_geometry[&element - m_elements.data()];
+    return {c.x,c.y};
+  }
+  float elementRadius(MobileTouchElement const& element) const {
+    return m_geometry[&element - m_elements.data()].radius;
   }
 
   MobileTouchElement const* findElement(String const& id) const {
@@ -1235,26 +1315,23 @@ private:
     return pos;
   }
 
-  Vec2F toInputSpace(Vec2F const& pos) const {
-    Vec2F physicalCanvas = canvasSize();
-    Vec2F renderCanvas = m_renderCanvasSize ? Vec2F(*m_renderCanvasSize) : physicalCanvas;
-    Vec2F scaled{
-      physicalCanvas[0] > 0.0f ? pos[0] * renderCanvas[0] / physicalCanvas[0] : pos[0],
-      physicalCanvas[1] > 0.0f ? pos[1] * renderCanvas[1] / physicalCanvas[1] : pos[1]
-    };
-
-    // Y-flip: game input space has y=0 at bottom; screen space has y=0 at top.
-    // Use render-canvas height to match the renderer's logical resolution.
-    return {scaled[0], renderCanvas[1] - scaled[1]};
+  TouchLayout::Viewport touchViewport() const {
+    auto size=canvasSize();
+    return {size[0],size[1],m_safeAreaPtr ? (float)m_safeAreaPtr->left : 0,m_safeAreaPtr ? (float)m_safeAreaPtr->top : 0};
   }
-
+  TouchLayout::Viewport gameViewport() const {
+    auto inset=m_renderSafeAreaPtr ? *m_renderSafeAreaPtr : SafeAreaInsets{};
+    return {std::max(1.f,(float)(*m_windowSize)[0]-inset.left-inset.right),std::max(1.f,(float)(*m_windowSize)[1]-inset.top-inset.bottom),(float)inset.left,(float)inset.top};
+  }
+  Vec2F toInputSpace(Vec2F const& pos) const {
+    auto canvas=inputCanvasSize();
+    auto point=TouchLayout::inputPoint({pos[0],pos[1]},touchViewport(),gameViewport(),canvas[0],canvas[1]);
+    return {point[0],point[1]};
+  }
   Vec2F toScreenSpace(Vec2F const& pos) const {
-    Vec2F physicalCanvas = canvasSize();
-    Vec2F renderCanvas = m_renderCanvasSize ? Vec2F(*m_renderCanvasSize) : physicalCanvas;
-    return {
-      renderCanvas[0] > 0.0f ? pos[0] * physicalCanvas[0] / renderCanvas[0] : pos[0],
-      renderCanvas[1] > 0.0f ? (renderCanvas[1] - pos[1]) * physicalCanvas[1] / renderCanvas[1] : pos[1]
-    };
+    auto canvas=inputCanvasSize();
+    auto point=TouchLayout::screenPoint({pos[0],pos[1]},touchViewport(),gameViewport(),canvas[0],canvas[1]);
+    return {point[0],point[1]};
   }
 
   Vec2F inputCanvasSize() const {
@@ -1282,7 +1359,7 @@ private:
     MobileTouchElement const* bestElement = nullptr;
     float bestDistance = 0.0f;
     for (auto const& element : m_elements) {
-      if (!element.enabled)
+      if (!visible(element))
         continue;
       if (!m_config.lockOnEnabled && (element.action.kind == MobileTouchActionKind::TargetLockToggle || element.action.kind == MobileTouchActionKind::TargetLockNext))
         continue;
@@ -1290,8 +1367,8 @@ private:
         continue;
 
       Vec2F center = elementCenter(element);
-      float elementRadius = radius * std::clamp(element.size, 0.45f, 2.4f);
-      float reach = element.kind == MobileTouchElementKind::Button ? 0.85f : 1.15f;
+      float elementRadius = this->elementRadius(element);
+      float reach = 1.f;
       if (!insideCircle(pos, center, elementRadius * reach))
         continue;
 
@@ -1335,13 +1412,13 @@ private:
     // Pass 2: joysticks, only if no button took the touch.
     if (!claimedControl) {
       for (auto const& element : m_elements) {
-        if (!element.enabled)
+        if (!visible(element))
           continue;
 
         Vec2F center = elementCenter(element);
-        float elementRadius = radius * std::clamp(element.size, 0.45f, 2.4f);
+        float elementRadius = this->elementRadius(element);
         if (element.kind == MobileTouchElementKind::Joystick && !m_joystickActive
-            && insideCircle(pos, center, elementRadius * 1.9f)) {
+            && (insideCircle(pos,center,elementRadius) || (m_config.floatingMovement && TouchLayout::floatingZone(pos[0],pos[1],layoutMetrics()) && !TouchLayout::blocked({pos[0],pos[1],0},layoutMetrics(),m_hud)))) {
           // Floating joystick: the wide touch zone around the stick starts it
           // right where the thumb lands, so the player never has to find the
           // ring by sight. The ring is drawn at this origin until release.
@@ -1350,13 +1427,17 @@ private:
           m_joystickActive = true;
           m_joystickFinger = finger;
           m_joystickElementId = element.id;
-          m_joystickOrigin = pos;
-          m_joystickCurrent = pos;
+          auto origin=TouchLayout::clamp({pos[0],pos[1],elementRadius},layoutMetrics());
+          bool safeOrigin=!TouchLayout::blocked(origin,layoutMetrics(),m_hud);
+          for(size_t i=0;i<m_elements.size();++i) if(m_elements[i].id!=element.id)
+            safeOrigin &= TouchLayout::separated(origin,m_geometry[i],8*layoutMetrics().dp());
+          m_joystickOrigin = m_config.floatingMovement && safeOrigin ? Vec2F(origin.x,origin.y) : center;
+          m_joystickCurrent = m_joystickOrigin;
           m_moveVec = {};
           claimedControl = true;
           break;
         } else if (element.kind == MobileTouchElementKind::AimJoystick && !m_aimJoystickActive
-            && insideCircle(pos, center, elementRadius * 1.4f)) {
+            && insideCircle(pos, center, elementRadius)) {
           state.role = FingerRole::AimJoystick;
           state.elementId = element.id;
           m_aimJoystickActive = true;
@@ -1366,6 +1447,12 @@ private:
           m_aimJoystickCurrent = pos;
           ensureAimTarget();
           updateAimJoystickFinger(state, pos);
+          if (m_config.aimAttackMode==TouchInput::AttackMode::Hold) {
+            // Preserve a short tap even when DOWN and UP share an SDL batch.
+            updateVirtualAimTarget();
+            setMouseOwner("aimJoystick:attack",m_aimSecondary ? MouseButton::Right : MouseButton::Left,true);
+            m_aimAttackHeld=true;
+          }
           claimedControl = true;
           break;
         }
@@ -1461,7 +1548,7 @@ private:
       m_joystickCurrent = pos;
       float radius = controlRadius();
       if (auto element = findElement(ptr->elementId))
-        radius *= std::clamp(element->size, 0.45f, 2.4f);
+        radius = elementRadius(*element);
       Vec2F delta = pos - m_joystickOrigin;
       float mag = delta.magnitude();
       if (mag > radius)
@@ -1576,6 +1663,8 @@ private:
         break;
     }
 
+    auto releasedElement = findElement(ptr->elementId);
+    if (releasedElement && releasedElement->panel) m_drawer.close();
     m_fingers.remove(finger);
   }
 
@@ -1654,7 +1743,7 @@ private:
     state.currentPos = pos;
     float radius = controlRadius();
     if (auto element = findElement(state.elementId))
-      radius *= std::clamp(element->size, 0.45f, 2.4f);
+      radius = elementRadius(*element);
 
     Vec2F delta = pos - m_aimJoystickOrigin;
     float mag = delta.magnitude();
@@ -2068,6 +2157,8 @@ private:
         m_quickSlotOwners.remove(owner);
         emitEvent(QuickSlotEvent{(unsigned)action.quickSlot, false, action.quickUse, owner});
       }
+    } else if (action.kind == MobileTouchActionKind::MorePanel) {
+      if (desired) m_drawer.next(m_panelPages,Time::monotonicMilliseconds()/1000.0);
     } else if (action.kind == MobileTouchActionKind::MiningModeToggle) {
       if (desired) emitEvent(MiningModeEvent{});
     } else if (action.kind == MobileTouchActionKind::TargetLockToggle || action.kind == MobileTouchActionKind::TargetLockNext) {
@@ -2238,13 +2329,20 @@ private:
   // blended shape pass has completed. Text can't use the inversion blend, so its
   // draw commands must land under ImGui's default blend state.
   enum class ButtonIcon {
-    None, Jump, Hand, Pickaxe, Cube, Pause, Chat, Bolt, Shift, Bag, Gyro, ArrowUp, ArrowDown, Wheel
+    None, Jump, Hand, Pickaxe, Cube, Pause, Chat, Bolt, Shift, Bag, Gyro, ArrowUp, ArrowDown, Wheel, More, Lock, Next, Hands
   };
 
   // Picks a vector icon from what the button does. Known default ids first,
   // then the bound action, so custom buttons the player adds get a fitting
   // icon too. Anything unrecognized keeps its text label.
   static ButtonIcon buttonIconFor(MobileTouchElement const& element) {
+    if (element.action.kind == MobileTouchActionKind::MorePanel) return ButtonIcon::More;
+    if (element.action.kind == MobileTouchActionKind::TargetLockToggle) return ButtonIcon::Lock;
+    if (element.action.kind == MobileTouchActionKind::TargetLockNext) return ButtonIcon::Next;
+    if (element.action.kind == MobileTouchActionKind::MiningModeToggle) return ButtonIcon::Pickaxe;
+    if (element.action.kind == MobileTouchActionKind::TouchHandSwap) return ButtonIcon::Hands;
+    if (element.id == "crouch") return ButtonIcon::ArrowDown;
+    if (element.id == "singleBlock") return ButtonIcon::Cube;
     if (element.id == "jump") return ButtonIcon::Jump;
     if (element.id == "interact") return ButtonIcon::Hand;
     if (element.id == "leftHand") return ButtonIcon::Pickaxe;
@@ -2380,6 +2478,24 @@ private:
         draw->AddLine(P(0.74f, 0.42f), P(0.22f, 0.12f), col, t);
         draw->AddLine(P(-0.74f, 0.42f), P(-0.22f, 0.12f), col, t);
         break;
+      case ButtonIcon::More:
+        for (float x : {-.6f,0.f,.6f}) draw->AddCircleFilled(P(x,0),k*.13f,col,8);
+        break;
+      case ButtonIcon::Lock:
+        draw->AddCircle(c,k*.6f,col,16,t);
+        draw->AddLine(P(-1,0),P(-.4f,0),col,t); draw->AddLine(P(.4f,0),P(1,0),col,t);
+        draw->AddLine(P(0,-1),P(0,-.4f),col,t); draw->AddLine(P(0,.4f),P(0,1),col,t);
+        break;
+      case ButtonIcon::Next:
+        strokeLines(draw,{P(-.7f,-.7f),P(0,0),P(-.7f,.7f)},false,col,t);
+        strokeLines(draw,{P(0,-.7f),P(.7f,0),P(0,.7f)},false,col,t);
+        break;
+      case ButtonIcon::Hands:
+        draw->AddLine(P(-.8f,-.3f),P(.8f,-.3f),col,t);
+        draw->AddLine(P(-.8f,.3f),P(.8f,.3f),col,t);
+        strokeLines(draw,{P(.3f,-.8f),P(.8f,-.3f),P(.3f,.1f)},false,col,t);
+        strokeLines(draw,{P(-.3f,-.1f),P(-.8f,.3f),P(-.3f,.8f)},false,col,t);
+        break;
       case ButtonIcon::None:
       default:
         break;
@@ -2398,6 +2514,7 @@ private:
     std::array<String,4> owners;
     std::array<String,4> directions;
     std::array<char,768> perf{};
+    std::array<char,96> fittedLabel{};
     ButtonIcon icon=ButtonIcon::None;
     ImFont* font=nullptr;
     ImVec2 textSize{};
@@ -2405,7 +2522,11 @@ private:
     int64_t nextPerfMs=0;
   };
   void rebuildOverlayCache() {
+    m_geometryDirty=true;
+    m_geometry.resize(m_elements.size());
+    m_shortcutRendered.resize(m_elements.size());
     m_overlayCache.clear(); m_overlayCache.resize(m_elements.size());
+    updateGeometry();
     m_overlayLabels.clear(); m_overlayLabels.reserve(m_elements.size()*4);
     for(size_t i=0;i<m_elements.size();++i) {
       auto& cache=m_overlayCache[i];
@@ -2417,15 +2538,6 @@ private:
     }
   };
 
-
-  // ImGui render callback that switches OpenGL to the inversion (difference)
-  // blend used for the always-visible button geometry. This is the same blend
-  // Minecraft uses for its crosshair: result.rgb = src*(1-dst) + dst*(1-src),
-  // which for a white source yields 1-dst, the negative of the background.
-  static void applyContrastBlendCallback(ImDrawList const*, ImDrawCmd const*) {
-    glBlendEquation(GL_FUNC_ADD);
-    glBlendFuncSeparate(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ZERO);
-  }
 
   // Draws text with a solid dark outline behind a light glyph so labels stay
   // legible on any background (light glyph shows on dark scenery, dark outline
@@ -2449,28 +2561,18 @@ private:
     draw->AddText(pos, color, text);
   }
 
-  static void drawButton(ImDrawList* draw, ImVec2 center, float radius, bool held, char const* label, ImU32 base, ImU32 fill, float thickness, std::vector<OverlayLabel>& labels, OverlayCache& cache, ButtonIcon icon = ButtonIcon::None) {
-    draw->AddCircle(center, radius, base, 48, thickness);
-    if (held) {
-      draw->AddCircleFilled(center, radius, fill, 32);
-      // Pressed feedback: an extra outer ring so the press is obvious even
-      // when the thumb covers the button.
-      draw->AddCircle(center, radius * 1.18f, fill, 48, thickness);
-    }
-    if (icon != ButtonIcon::None) {
-      drawButtonIcon(draw, center, radius, icon, base, thickness);
-      return;
-    }
+  static void queueButtonLabel(ImVec2 center, float radius, char const* label, std::vector<OverlayLabel>& labels, OverlayCache& cache) {
     // Size the label to the button and center it, so short ("J") and long
     // ("Shift", "ESC") labels both sit in the middle of the circle.
     float baseSize = ImGui::GetFontSize();
     if(cache.radius != radius || cache.font != ImGui::GetFont() || cache.baseFontSize != baseSize) {
-      float length=(float)std::max<size_t>(2,std::strlen(label));
-      cache.fontSize=std::clamp(std::min(radius*.80f,radius*1.7f/length),baseSize,baseSize*3.5f);
-      cache.textSize=ImGui::GetFont()->CalcTextSizeA(cache.fontSize,FLT_MAX,0,label);
+      cache.fontSize=std::max(8.f,radius*.48f);
+      auto measure=[&](char const* text) { return ImGui::GetFont()->CalcTextSizeA(cache.fontSize,FLT_MAX,0,text).x; };
+      TouchLayout::fitLabel(cache.fittedLabel.data(),cache.fittedLabel.size(),label,radius*1.55f,measure);
+      cache.textSize=ImGui::GetFont()->CalcTextSizeA(cache.fontSize,FLT_MAX,0,cache.fittedLabel.data());
       cache.radius=radius; cache.font=ImGui::GetFont(); cache.baseFontSize=baseSize;
     }
-    labels.push_back({ImVec2(center.x-cache.textSize.x*.5f,center.y-cache.textSize.y*.5f),label,cache.fontSize});
+    labels.push_back({ImVec2(center.x-cache.textSize.x*.5f,center.y-cache.textSize.y*.5f),cache.fittedLabel.data(),cache.fontSize});
   }
 
   void drawDPad(ImDrawList* draw, ImVec2 center, float radius, OverlayCache const& cache, ImU32 base, ImU32 fill, float thickness, std::vector<OverlayLabel>& labels) const {
@@ -2490,10 +2592,18 @@ private:
     drawArm(3,ImVec2(center.x+arm*1.25f,center.y));
   }
 
+  std::vector<TouchLayout::Circle> m_geometry;
+  bool m_geometryDirty=true;
+  TouchLayout::Metrics m_previousMetrics{};
+  TouchLayout::Drawer m_previousDrawer;
+  TouchLayout::Hud m_hud;
+  TouchLayout::Drawer m_drawer;
+  size_t m_panelPages=1;
   Vec2U* m_windowSize;
   Vec2U* m_renderCanvasSize = nullptr;
   [[maybe_unused]] float* m_displayScalePtr = nullptr;
   SafeAreaInsets* m_safeAreaPtr = nullptr;
+  SafeAreaInsets* m_renderSafeAreaPtr = nullptr;
   MobileTouchConfig m_config;
   std::vector<MobileTouchElement> m_elements = defaultTouchElements();
   std::vector<OverlayCache> m_overlayCache;
@@ -3203,12 +3313,13 @@ private:
 
 
 
-MobileTouchInputAdapter::MobileTouchInputAdapter(Vec2U* windowSize, Vec2U* renderCanvasSize, float* displayScale, SafeAreaInsets* safeArea)
-  : m_impl(make_unique<Impl>(windowSize, renderCanvasSize, displayScale, safeArea)) {}
+MobileTouchInputAdapter::MobileTouchInputAdapter(Vec2U* windowSize, Vec2U* renderCanvasSize, float* displayScale, SafeAreaInsets* safeArea, SafeAreaInsets* renderSafeArea)
+  : m_impl(make_unique<Impl>(windowSize, renderCanvasSize, displayScale, safeArea, renderSafeArea)) {}
 
 MobileTouchInputAdapter::~MobileTouchInputAdapter() = default;
 
 void MobileTouchInputAdapter::setConfig(MobileTouchConfig config) { m_impl->setConfig(std::move(config)); }
+void MobileTouchInputAdapter::setHud(TouchLayout::Hud const& hud) { m_impl->setHud(hud); }
 void MobileTouchInputAdapter::setContext(unsigned mode) { m_impl->setContext(mode); }
 void MobileTouchInputAdapter::setGyroAvailable(bool available) { m_impl->setGyroAvailable(available); }
 void MobileTouchInputAdapter::setElements(std::vector<MobileTouchElement> elements) { m_impl->setElements(std::move(elements)); }
@@ -3221,6 +3332,9 @@ bool MobileTouchInputAdapter::processSdlEvent(SDL_Event const& event) { return m
 void MobileTouchInputAdapter::cancelAll() { m_impl->cancelAll(); }
 void MobileTouchInputAdapter::renderShortcutIcons(Application& application) { m_impl->renderShortcutIcons(application); }
 void MobileTouchInputAdapter::drawOverlay(float fps, bool directionalMining) { m_impl->drawOverlay(fps, directionalMining); }
+void MobileTouchInputAdapter::drawPreviewControl(ImDrawList* draw, MobileTouchElement const& element, Vec2F center, float radius, float opacity, bool selected) {
+  Impl::drawPreviewControl(draw,element,center,radius,opacity,selected);
+}
 bool MobileTouchInputAdapter::overlayEnabled() const { return m_impl->overlayEnabled(); }
 
 MobileGamepadInputAdapter::MobileGamepadInputAdapter(Vec2U* renderCanvasSize)

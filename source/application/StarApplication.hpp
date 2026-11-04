@@ -1,6 +1,9 @@
 #pragma once
 
 #include "StarInputEvent.hpp"
+#ifdef STAR_PLATFORM_MOBILE
+#include "StarTouchLayout.hpp"
+#endif
 
 namespace Star {
 
@@ -49,6 +52,7 @@ public:
   virtual unsigned touchInputMode() const { return 2; }
   virtual bool touchDirectionalMining() const { return false; }
   virtual bool renderTouchShortcut(TouchShortcutVisual const&) { return false; }
+  virtual TouchLayout::Hud touchOverlayHud() const { return {}; }
 #endif
 
   // Will be called at updateRate hz, or as close as possible.

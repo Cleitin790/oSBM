@@ -2,6 +2,7 @@
 
 #include "StarInputEvent.hpp"
 #include "StarTouchInput.hpp"
+#include "StarTouchLayout.hpp"
 #include "StarJson.hpp"
 #include "StarString.hpp"
 #include "StarVector.hpp"
@@ -11,6 +12,8 @@
 #include <array>
 #include <memory>
 #include <vector>
+
+struct ImDrawList;
 
 namespace Star {
 
@@ -48,7 +51,8 @@ enum class MobileTouchActionKind {
   UiNavigation,
   None,
   MiningModeToggle,
-  QuickSlot
+  QuickSlot,
+  MorePanel
 };
 
 struct MobileTouchAction {
@@ -95,6 +99,9 @@ struct MobileTouchConfig {
   float lockOnRange = 40;
   bool gyroInvertX = false;
   bool gyroInvertY = false;
+  bool floatingMovement = true;
+  bool panelLeft = false;
+  bool snapToGrid = true;
 };
 
 enum class MobileGamepadStickMode {
@@ -170,6 +177,11 @@ struct MobileTouchElement {
   // Only meaningful for kind == PerformanceCounter.
   PerformanceCounterMode perfCounterMode = PerformanceCounterMode::Fps;
   float opacity = 1.0f;
+  // Zero retains legacy geometry. New controls use a shared dp diameter for
+  // drawing and circular hit-testing. Adaptive built-ins anchor to safe edges.
+  float diameterDp = 0;
+  bool adaptive = false;
+  bool panel = false;
 };
 
 struct MobileGamepadBinding {
@@ -203,6 +215,8 @@ MobileTouchPressMode pressModeFromName(String const& name, MobileTouchPressMode 
 String perfCounterModeName(PerformanceCounterMode mode);
 PerformanceCounterMode perfCounterModeFromName(String const& name, PerformanceCounterMode def = PerformanceCounterMode::Fps);
 std::vector<MobileTouchElement> defaultTouchElements();
+void applyTouchLayout(std::vector<MobileTouchElement>& elements, int preset);
+TouchLayout::Circle touchElementCircle(MobileTouchElement const& element, MobileTouchConfig const& config, TouchLayout::Metrics metrics);
 std::vector<MobileGamepadBinding> defaultGamepadBindings();
 String elementKindName(MobileTouchElementKind kind);
 MobileTouchElementKind elementKindFromName(String const& name);
@@ -216,6 +230,7 @@ Json jsonFromTouchElement(MobileTouchElement const& element);
 MobileTouchElement touchElementFromJson(Json const& json, MobileTouchElement def);
 JsonArray jsonFromTouchElements(std::vector<MobileTouchElement> const& elements);
 std::vector<MobileTouchElement> touchElementsFromConfig(Json const& config);
+std::vector<MobileTouchElement> touchElementsForScreen(Json const& config, Vec2U size);
 String gamepadStickModeName(MobileGamepadStickMode mode);
 MobileGamepadStickMode gamepadStickModeFromName(String const& name, MobileGamepadStickMode def = MobileGamepadStickMode::Movement);
 String directTouchGestureModeName(DirectTouchGestureMode mode);
@@ -231,11 +246,12 @@ class Application;
 
 class MobileTouchInputAdapter {
 public:
-  explicit MobileTouchInputAdapter(Vec2U* windowSize, Vec2U* renderCanvasSize = nullptr, float* displayScale = nullptr, SafeAreaInsets* safeArea = nullptr);
+  explicit MobileTouchInputAdapter(Vec2U* windowSize, Vec2U* renderCanvasSize = nullptr, float* displayScale = nullptr, SafeAreaInsets* safeArea = nullptr, SafeAreaInsets* renderSafeArea = nullptr);
   ~MobileTouchInputAdapter();
 
   void setConfig(MobileTouchConfig config);
   void setContext(unsigned mode);
+  void setHud(TouchLayout::Hud const& hud);
   void setGyroAvailable(bool available);
   void setElements(std::vector<MobileTouchElement> elements);
   void beginFrame();
@@ -248,6 +264,7 @@ public:
   void renderShortcutIcons(Application& application);
   void drawOverlay(float fps, bool directionalMining = false);
   bool overlayEnabled() const;
+  static void drawPreviewControl(ImDrawList* draw, MobileTouchElement const& element, Vec2F center, float radius, float opacity, bool selected);
 
 private:
   class Impl;

@@ -85,7 +85,7 @@ String actionName(MobileTouchAction const& action) {
       return label;
     }
     case MobileTouchActionKind::MiningModeToggle: return launcherTextStatic("touchAction.miningMode", "Free / directional mining");
-    case MobileTouchActionKind::TargetLockToggle: return launcherTextStatic("touchAction.targetLock", "Lock / unlock target");
+    case MobileTouchActionKind::TargetLockToggle: return launcherTextStatic("touchAction.targetLock", "Pause / resume automatic target lock");
     case MobileTouchActionKind::TargetLockNext: return launcherTextStatic("touchAction.targetNext", "Next target");
     case MobileTouchActionKind::TouchHandSwap:
       return launcherTextStatic("touchAction.swapAimHand", "Swap aim hand");
@@ -271,7 +271,7 @@ std::vector<MobileTouchElement> defaultTouchElements() {
     {"inventoryWheel", launcherTextStatic("touchElement.inventoryWheel", "Inv"), MobileTouchElementKind::Button, true, {0.94f, 0.42f}, 0.82f, inventoryWheelAction(), {}, {}, {}, {}, MobileTouchPressMode::Hold},
     {"actionWheel", launcherTextStatic("touchElement.actionWheel", "Menu"), MobileTouchElementKind::Button, true, {0.94f, 0.26f}, 0.82f, actionWheelAction(), {}, {}, {}, {}, MobileTouchPressMode::Hold},
     {"shift", launcherTextStatic("touchElement.shift", "Shift"), MobileTouchElementKind::Button, false, {0.66f, 0.88f}, 0.82f, keyAction(Key::LShift), {}, {}, {}, {}},
-    {"targetLock", launcherTextStatic("touchElement.targetLock", "Lock"), MobileTouchElementKind::Button, true, {0.54f, 0.45f}, 0.72f, targetLockAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
+    {"targetLock", launcherTextStatic("touchElement.targetLock", "Auto"), MobileTouchElementKind::Button, true, {0.54f, 0.45f}, 0.72f, targetLockAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
     {"targetNext", launcherTextStatic("touchElement.targetNext", "Next"), MobileTouchElementKind::Button, true, {0.62f, 0.45f}, 0.72f, targetLockAction(true), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
     {"quick1", "Q1", MobileTouchElementKind::Button, false, {0.50f, 0.32f}, .80f, quickSlotAction(0), {}, {}, {}, {}, MobileTouchPressMode::Hold},
     {"quick2", "Q2", MobileTouchElementKind::Button, false, {0.58f, 0.32f}, .80f, quickSlotAction(1), {}, {}, {}, {}, MobileTouchPressMode::Hold},
@@ -2808,6 +2808,10 @@ public:
       // A touch aim joystick is another pointer owner, just like a mouse.
       m_hasDirectionalAim = false;
     }
+    if(auto down=event.ptr<MouseButtonDownEvent>(); down && down->source==InputSource::Mouse)
+      m_hasDirectionalAim=false;
+    if(auto key=event.ptr<KeyDownEvent>(); key && key->source==InputSource::Mouse)
+      m_hasDirectionalAim=false;
     // Preserve ordering when physical pointer/keyboard input follows generated
     // gamepad input in the same SDL poll batch.
     appendGeneratedEvents(passthroughEvents);
@@ -2827,7 +2831,7 @@ public:
 
     for (auto const& pair : m_keyHoldCounts.pairs()) {
       if (pair.second > 0)
-        emitEvent(KeyUpEvent{pair.first});
+        emitEvent(KeyUpEvent{pair.first, InputSource::Gamepad});
     }
     for (auto const& pair : m_mouseHoldCounts.pairs()) {
       if (pair.second > 0)
@@ -3111,13 +3115,13 @@ private:
       unsigned count = m_keyHoldCounts.value(key, 0);
       m_keyHoldCounts.set(key, count + 1);
       if (count == 0)
-        emitEvent(KeyDownEvent{key, noMods()});
+        emitEvent(KeyDownEvent{key, noMods(), InputSource::Gamepad});
     } else if (!desired && m_keyActionOwners.contains(token)) {
       m_keyActionOwners.remove(token);
       unsigned count = m_keyHoldCounts.value(key, 0);
       if (count <= 1) {
         m_keyHoldCounts.remove(key);
-        emitEvent(KeyUpEvent{key});
+        emitEvent(KeyUpEvent{key, InputSource::Gamepad});
       } else {
         m_keyHoldCounts.set(key, count - 1);
       }

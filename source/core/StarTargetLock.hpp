@@ -1,16 +1,39 @@
 #pragma once
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 
 namespace Star::TargetLock {
-// A prioridade só vale na aquisição explícita; nunca troca um alvo mantido.
+// Manual cycling retains its cone. Automatic acquisition covers the screen.
 inline float score(float distance, float alignment, bool boss, bool preferBoss) {
   if (!std::isfinite(distance) || !std::isfinite(alignment) || distance <= 0 || alignment < 0.5f)
     return std::numeric_limits<float>::infinity();
   return distance * 0.1f + (1 - alignment) * 100 - (boss && preferBoss ? 1000 : 0);
 }
 struct Candidate { float rank = std::numeric_limits<float>::infinity(); int64_t id = 0; bool valid = false; };
+inline float automaticScore(float distance, float alignment, bool boss, bool preferBoss) {
+  if(!std::isfinite(distance) || !std::isfinite(alignment) || distance<0)
+    return std::numeric_limits<float>::infinity();
+  alignment=std::max(-1.f,std::min(1.f,alignment));
+  return distance+(1-alignment)*.25f-(boss && preferBoss ? 1000 : 0);
+}
+inline bool weaponEligible(bool primaryWeapon, bool secondaryWeapon, bool primaryOccupied, bool primaryHeld, bool secondaryHeld) {
+  if(primaryHeld && !primaryWeapon) return false;
+  if(secondaryHeld && !secondaryWeapon) return false;
+  return primaryWeapon || (secondaryWeapon && (secondaryHeld || !primaryOccupied));
+}
+struct AutomaticSearch {
+  double lastAt=-1e30;
+  void reset() { lastAt=-1e30; }
+  bool due(double now, bool eligible, bool hasTarget, bool seekBoss) {
+    if(!eligible) { reset(); return false; }
+    if(hasTarget && !seekBoss) return false;
+    if(!std::isfinite(now) || now<lastAt+(hasTarget ? .75 : .25)) return false;
+    lastAt=now;
+    return true;
+  }
+};
 inline bool before(Candidate a, Candidate b) {
   return a.rank < b.rank || (a.rank == b.rank && a.id < b.id);
 }

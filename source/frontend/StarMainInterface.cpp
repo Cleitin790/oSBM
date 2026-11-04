@@ -158,6 +158,9 @@ MainInterface::MainInterface(UniverseClientPtr client, WorldPainterPtr painter, 
 #ifdef STAR_PLATFORM_MOBILE
   Json lockConfig = Root::singleton().configuration()->getPath("mobile.lockOn", JsonObject());
   m_lockOnEnabled = lockConfig.getBool("enabled", false);
+#ifdef STAR_SYSTEM_FAMILY_MOBILE
+  m_lockInputActive = true;
+#endif
   m_lockPreferBoss = lockConfig.getBool("preferBoss", true);
   m_lockRange = std::clamp(lockConfig.getFloat("range", 40), 8.0f, 80.0f);
 #endif
@@ -351,14 +354,20 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
   }
 
 #ifdef STAR_PLATFORM_MOBILE
+  if(auto move=event.ptr<MouseMoveEvent>()) m_lockInputActive=move->source!=InputSource::Mouse;
+  if(auto down=event.ptr<MouseButtonDownEvent>()) m_lockInputActive=down->source!=InputSource::Mouse;
+  if(auto key=event.ptr<KeyDownEvent>()) m_lockInputActive=key->source!=InputSource::Mouse;
+  if(event.is<DirectionalAimEvent>()) m_lockInputActive=true;
+  if(!m_lockInputActive) m_lockTarget=NullEntityId;
   if (m_lockTarget != NullEntityId) {
     if (auto move = event.ptr<MouseMoveEvent>(); move && move->source == InputSource::Mouse)
       m_lockTarget = NullEntityId;
     if (auto down = event.ptr<MouseButtonDownEvent>()) {
       auto player = m_client->mainPlayer();
-      auto item = down->mouseButton == MouseButton::Right ? player->altHandItem() : player->primaryHandItem();
+      auto item = player->primaryHandItem();
+      if(down->mouseButton==MouseButton::Right && (!item || !item->twoHanded())) item=player->altHandItem();
       static String const weaponTag = "weapon";
-      if (!item || !item->hasItemTag(weaponTag)) {
+      if (!item || !item->hasItemTag(weaponTag) || is<TileMiningTool>(item) || is<MaterialItem>(item)) {
         m_lockTarget = NullEntityId;
         m_mobileDirectionalAimActive = false;
       }
@@ -406,10 +415,22 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
       m_miningInput = false;
       m_miningTarget.reset();
     }
-    if (lock->command == TargetLockCommand::Cancel || (lock->command == TargetLockCommand::Toggle && m_lockTarget != NullEntityId))
-      m_lockTarget = NullEntityId;
-    else if (m_lockOnEnabled && !windowsOpen() && !inputFocus())
-      acquireTargetLock(lock->command == TargetLockCommand::Next);
+    if (lock->command == TargetLockCommand::Cancel) {
+      m_lockTarget=NullEntityId;
+      m_lockSearch.reset();
+    } else if (m_lockOnEnabled && !windowsOpen() && !inputFocus()) {
+      m_lockInputActive=true;
+      m_lockSearch.reset();
+      if(lock->command==TargetLockCommand::Toggle) {
+        m_lockAutoPaused=!m_lockAutoPaused;
+        m_lockTarget=NullEntityId;
+        queueMessage(m_lockAutoPaused ? "Trava automática: pausada" : "Trava automática: ligada");
+      } else {
+        m_lockAutoPaused=false;
+        acquireTargetLock(true,true);
+        m_lockUserSelected=m_lockTarget!=NullEntityId;
+      }
+    }
     return true;
   }
   if (auto touch = event.ptr<TouchPointerEvent>()) {
@@ -775,6 +796,7 @@ void MainInterface::finishQuickSlot() {
 void MainInterface::preUpdate(float) {
   auto player = m_client->mainPlayer();
 #ifdef STAR_PLATFORM_MOBILE
+  updateTargetLock();
   if (!m_quickSlotOwner.empty()) {
     if (!player->inWorld() || player->isDead() || windowsOpen() || inputFocus() || m_client->paused() || m_actionWheelActive
         || (m_cinematicOverlay && !m_cinematicOverlay->completed())
@@ -818,9 +840,6 @@ void MainInterface::preUpdate(float) {
 
 void MainInterface::update(float dt) {
   m_paneManager.update(dt);
-#ifdef STAR_PLATFORM_MOBILE
-  updateTargetLock();
-#endif
   m_cursor.update(dt);
   m_cursorDraggingCached = (bool)m_client->mainPlayer()->inventory()->swapSlotItem();
 
@@ -2377,12 +2396,17 @@ bool MainInterface::lockWeaponEquipped() const {
   static String const weaponTag = "weapon";
   auto primary = player->primaryHandItem();
   auto secondary = player->altHandItem();
-  return (primary && primary->hasItemTag(weaponTag)) || (secondary && secondary->hasItemTag(weaponTag));
+  auto weapon=[&](ItemPtr const& item) { return item && item->hasItemTag(weaponTag)
+      && !is<TileMiningTool>(item) && !is<MaterialItem>(item); };
+  bool primaryWeapon=weapon(primary);
+  bool secondaryWeapon=primary && primary->twoHanded() ? primaryWeapon : weapon(secondary);
+  return TargetLock::weaponEligible(primaryWeapon,secondaryWeapon,(bool)primary,m_primaryInputHeld,m_secondaryInputHeld);
 }
 
 bool MainInterface::lockTargetValid(EntityId id, Vec2F& position) const {
   auto world = m_client->worldClient();
   auto player = m_client->mainPlayer();
+  if(!world || !player->inWorld()) return false;
   auto entity = world->entity(id);
   if (id == m_lockTarget && m_lockEntity && entity != m_lockEntity) return false;
   auto bar = as<DamageBarEntity>(entity);
@@ -2403,21 +2427,41 @@ bool MainInterface::lockTargetValid(EntityId id, Vec2F& position) const {
 }
 
 void MainInterface::updateTargetLock() {
-  if (m_lockTarget == NullEntityId) { m_lockPrimary.reset(); m_lockSecondary.reset(); m_lockEntity.reset(); return; }
-  auto player = m_client->mainPlayer();
-  Vec2F position;
-  if (!m_lockOnEnabled || player->primaryHandItem() != m_lockPrimary || player->altHandItem() != m_lockSecondary
-      || windowsOpen() || inputFocus() || (m_cinematicOverlay && !m_cinematicOverlay->completed())
-      || !lockTargetValid(m_lockTarget, position))
-    m_lockTarget = NullEntityId;
-  else
-    m_lockPosition = position; // O render só lê a posição validada no update.
+  auto player=m_client->mainPlayer();
+  bool eligible=m_lockOnEnabled && !m_lockAutoPaused && m_lockInputActive
+      && m_guiContext->applicationController()->isFocused() && player->inWorld() && !player->isDead()
+      && !m_client->paused() && !windowsOpen() && !inputFocus() && !m_actionWheelActive
+      && !player->inventory()->swapSlotItem() && m_quickSlotOwner.empty()
+      && (!m_cinematicOverlay || m_cinematicOverlay->completed()) && lockWeaponEquipped();
+  bool held=m_lockTarget!=NullEntityId;
+  if(held) {
+    Vec2F position;
+    if(!eligible || player->primaryHandItem()!=m_lockPrimary || player->altHandItem()!=m_lockSecondary
+        || !lockTargetValid(m_lockTarget,position)) {
+      m_lockTarget=NullEntityId; held=false;
+    } else m_lockPosition=position;
+  }
+  bool seekBoss=false;
+  if(!held) {
+    m_lockPrimary.reset(); m_lockSecondary.reset(); m_lockEntity.reset(); m_lockUserSelected=false;
+  } else if(m_lockPreferBoss && !m_lockUserSelected) {
+    auto bar=as<DamageBarEntity>(m_lockEntity);
+    seekBoss=bar && bar->damageBar()!=DamageBarType::Special;
+  }
+  // No global query every frame. Empty-target scans are capped at 4 Hz;
+  // boss promotion scans at 1.33 Hz and skip ordinary creatures before LOS.
+  if(m_lockSearch.due(Time::monotonicMilliseconds()/1000.0,eligible,held,seekBoss))
+    acquireTargetLock(false,true,held);
 }
 
-void MainInterface::acquireTargetLock(bool next) {
+void MainInterface::acquireTargetLock(bool next, bool automatic, bool bossOnly) {
   if (!lockWeaponEquipped()) { m_lockTarget = NullEntityId; return; }
   auto world = m_client->worldClient();
   auto player = m_client->mainPlayer();
+  if(!world || !player->inWorld() || player->isDead() || m_client->paused() || windowsOpen() || inputFocus()
+      || m_actionWheelActive || !m_quickSlotOwner.empty() || player->inventory()->swapSlotItem()
+      || !m_guiContext->applicationController()->isFocused()
+      || (m_cinematicOverlay && !m_cinematicOverlay->completed())) return;
   Vec2F origin = player->position();
   Vec2F direction = world->geometry().diff(cursorWorldPosition(), origin);
   if (direction.magnitudeSquared() < 0.001f) direction = {1,0};
@@ -2431,27 +2475,30 @@ void MainInterface::acquireTargetLock(bool next) {
       Vec2F delta = world->geometry().diff(position, origin);
       float distance = delta.magnitude();
       auto bar = as<DamageBarEntity>(world->entity(previous));
-      chooser.previous = {TargetLock::score(distance, (delta * direction) / std::max(0.001f,distance),
-          bar->damageBar() == DamageBarType::Special, m_lockPreferBoss), previous, true};
+      float alignment=(delta*direction)/std::max(.001f,distance);
+      chooser.previous = {automatic ? TargetLock::automaticScore(distance,alignment,bar->damageBar()==DamageBarType::Special,m_lockPreferBoss)
+          : TargetLock::score(distance,alignment,bar->damageBar()==DamageBarType::Special,m_lockPreferBoss),previous,true};
     }
   } else {
     m_lockSearchDirection = direction;
   }
   world->forEachEntity(RectF::withCenter(origin, Vec2F::filled(m_lockRange * 2)), [&](EntityPtr const& entity) {
     if (next && entity->entityId() == previous) return;
+    auto bar=as<DamageBarEntity>(entity);
+    if(bossOnly && (!bar || bar->damageBar()!=DamageBarType::Special)) return;
     Vec2F position;
     if (!lockTargetValid(entity->entityId(), position)) return;
     Vec2F delta = world->geometry().diff(position, origin);
     float distance = delta.magnitude();
-    auto bar = as<DamageBarEntity>(entity);
-    float score = TargetLock::score(distance, (delta * direction) / std::max(0.001f, distance),
-        bar->damageBar() == DamageBarType::Special, m_lockPreferBoss);
+    float alignment=(delta*direction)/std::max(.001f,distance);
+    float score = automatic ? TargetLock::automaticScore(distance,alignment,bar->damageBar()==DamageBarType::Special,m_lockPreferBoss)
+        : TargetLock::score(distance,alignment,bar->damageBar()==DamageBarType::Special,m_lockPreferBoss);
     chooser.consider(score, entity->entityId());
   });
   auto result = chooser.result();
   EntityId chosen = result.valid ? (EntityId)result.id : NullEntityId;
-  // Não há busca automática de substituto quando o alvo morre ou desaparece.
-  if (chosen != NullEntityId || !next) m_lockTarget = chosen;
+  // A boss-only scan must keep the current enemy when no visible boss exists.
+  if (chosen != NullEntityId || (!next && !bossOnly)) m_lockTarget = chosen;
   m_lockPrimary = player->primaryHandItem(); m_lockSecondary = player->altHandItem();
   m_lockEntity = world->entity(m_lockTarget);
   if (m_lockEntity) m_lockPosition = m_lockEntity->position() + m_lockEntity->metaBoundBox().center();

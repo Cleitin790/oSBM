@@ -10,6 +10,7 @@
 #include "StarWarping.hpp"
 #ifdef STAR_PLATFORM_MOBILE
 #include "StarTouchLayout.hpp"
+#include "StarTargetLock.hpp"
 #endif
 
 namespace Star {
@@ -215,7 +216,7 @@ private:
   bool lockWeaponEquipped() const;
   bool lockTargetValid(EntityId id, Vec2F& position) const;
   void updateTargetLock();
-  void acquireTargetLock(bool next);
+  void acquireTargetLock(bool next, bool automatic = false, bool bossOnly = false);
   void finishQuickSlot();
   String m_quickSlotOwner;
   ItemPtr m_quickSlotItem;
@@ -225,6 +226,8 @@ private:
   bool m_miningInput = false;
   Maybe<Vec2F> m_miningTarget;
   bool m_lockOnEnabled = false, m_lockPreferBoss = true;
+  bool m_lockAutoPaused = false, m_lockInputActive = false, m_lockUserSelected = false;
+  TargetLock::AutomaticSearch m_lockSearch;
   float m_lockRange = 40;
   EntityId m_lockTarget = NullEntityId;
   ItemPtr m_lockPrimary, m_lockSecondary;

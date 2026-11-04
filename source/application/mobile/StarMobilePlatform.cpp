@@ -2828,20 +2828,20 @@ private:
     for(size_t i=0;i<state.touchElements.size();++i) {
       auto const& e=state.touchElements[i];
       auto c=touchElementCircle(e,state.touchConfig,metrics);
-      c.visible=e.enabled && !e.panel;
+      c.visible=e.enabled && !touchElementInPanel(e,state.touchConfig);
       if(c.visible && e.adaptive) c=TouchLayout::avoid(c,metrics,guides,circles.data(),i);
       circles[i]=c;
     }
     TouchLayout::Circle menu{},move{},aim{}; menu.visible=move.visible=aim.visible=false;
     for(size_t i=0;i<state.touchElements.size();++i) {
       auto const& e=state.touchElements[i];
-      if(e.id=="more") menu=circles[i];
+      if(e.action.kind==MobileTouchActionKind::MorePanel) menu=circles[i];
       if(e.kind==MobileTouchElementKind::Joystick) move=circles[i];
       if(e.kind==MobileTouchElementKind::AimJoystick) aim=circles[i];
     }
     auto cells=TouchLayout::panelCells(metrics,guides,state.touchConfig.panelLeft,menu,move,aim);
     size_t panel=0;
-    for(size_t i=0;i<state.touchElements.size();++i) if(state.touchElements[i].panel) {
+    for(size_t i=0;i<state.touchElements.size();++i) if(touchElementInPanel(state.touchElements[i],state.touchConfig)) {
       circles[i]=cells.cells[panel%std::max<size_t>(1,cells.count)];
       circles[i].visible=state.touchElements[i].enabled && panel<cells.count;
       ++panel;
@@ -2863,6 +2863,7 @@ private:
         c.x=mx+state.touchDragOffset[0]; c.y=my+state.touchDragOffset[1];
         c=TouchLayout::clamp(c,metrics);
         state.activeTouchLayout.clear();
+        if(e.diameterDp<=0 && e.kind==MobileTouchElementKind::Button) e.diameterDp=e.id=="jump" ? 56 : 48;
         e.position={c.x/canvasSize.x,c.y/canvasSize.y}; e.adaptive=false; e.panel=false; circles[index]=c;
       } else {
         if(state.touchConfig.snapToGrid) {
@@ -3097,7 +3098,7 @@ private:
   bool touchHudOverlap(MobileTouchElement const& element, MobileTouchConfig const& config, ImVec2 size) const {
     if (!element.enabled || element.kind == MobileTouchElementKind::PerformanceCounter)
       return false;
-    if(element.panel) return false;
+    if(touchElementInPanel(element,config)) return false;
     float density=m_displayScale*ImGui::GetIO().DisplaySize.x/std::max(1u,m_windowSize[0]);
     TouchLayout::Metrics metrics{size.x,size.y,density,config.size};
     auto c=touchElementCircle(element,config,metrics);
@@ -3297,6 +3298,7 @@ private:
     ImGui::SliderFloat(launcherText("touchManager.overlayOpacity", "Overlay opacity").utf8Ptr(), &state.touchConfig.opacity, 0.0f, 1.0f);
     ImGui::SliderFloat(launcherText("touchManager.globalControlSize", "Global control size").utf8Ptr(), &state.touchConfig.size, 0.5f, 1.5f);
     ImGui::Checkbox(launcherText("touchRedesign.floating", "Floating movement joystick").utf8Ptr(),&state.touchConfig.floatingMovement);
+    ImGui::Checkbox(launcherText("touchRedesign.compact", "Compact HUD (secondary actions in More)").utf8Ptr(),&state.touchConfig.compactHud);
     ImGui::Checkbox(launcherText("touchRedesign.panelLeft", "More panel on the left").utf8Ptr(),&state.touchConfig.panelLeft);
     ImGui::Checkbox(launcherText("touchRedesign.grid", "Snap editor to 8 dp grid").utf8Ptr(),&state.touchConfig.snapToGrid);
     ImGui::SliderFloat(launcherText("touchManager.outlineThickness", "Button outline thickness").utf8Ptr(), &state.touchConfig.outlineThickness, 1.0f, 5.0f);
@@ -3397,6 +3399,7 @@ private:
           if(element.diameterDp>0) ImGui::SliderFloat(launcherText("touchRedesign.diameter", "Diameter (dp)").utf8Ptr(),&element.diameterDp,44,192);
           float position[2] = {element.position[0], element.position[1]};
           if (ImGui::SliderFloat2(launcherText("touchManager.position", "Position").utf8Ptr(), position, 0.03f, 0.97f)) {
+            if(element.diameterDp<=0 && element.kind==MobileTouchElementKind::Button) element.diameterDp=element.id=="jump" ? 56 : 48;
             element.position = {position[0], position[1]}; element.adaptive=false; element.panel=false; state.activeTouchLayout.clear();
           }
           if (element.kind == MobileTouchElementKind::Button) {
@@ -4273,7 +4276,7 @@ private:
         {"aimAttackMode", (int)state.touchConfig.aimAttackMode},
         {"aimDeadzone", state.touchConfig.aimDeadzone},
         {"aimCurve", state.touchConfig.aimCurve},
-        {"floatingMovement",state.touchConfig.floatingMovement}, {"panelLeft",state.touchConfig.panelLeft}, {"snapToGrid",state.touchConfig.snapToGrid},
+        {"floatingMovement",state.touchConfig.floatingMovement}, {"panelLeft",state.touchConfig.panelLeft}, {"snapToGrid",state.touchConfig.snapToGrid}, {"compactHud",state.touchConfig.compactHud},
         {"gyroSensitivity", state.touchConfig.gyroSensitivity},
         {"gyroInvertX", state.touchConfig.gyroInvertX},
         {"gyroInvertY", state.touchConfig.gyroInvertY},
@@ -4397,7 +4400,7 @@ private:
         {"aimAttackMode", (int)state.touchConfig.aimAttackMode},
             {"aimDeadzone", state.touchConfig.aimDeadzone},
             {"aimCurve", state.touchConfig.aimCurve},
-        {"floatingMovement",state.touchConfig.floatingMovement}, {"panelLeft",state.touchConfig.panelLeft}, {"snapToGrid",state.touchConfig.snapToGrid},
+        {"floatingMovement",state.touchConfig.floatingMovement}, {"panelLeft",state.touchConfig.panelLeft}, {"snapToGrid",state.touchConfig.snapToGrid}, {"compactHud",state.touchConfig.compactHud},
             {"gyroSensitivity", state.touchConfig.gyroSensitivity},
             {"gyroInvertX", state.touchConfig.gyroInvertX},
             {"gyroInvertY", state.touchConfig.gyroInvertY},

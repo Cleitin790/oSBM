@@ -405,3 +405,4 @@ touchRedesign.holdAttack=Use while touching aim joystick
 touchRedesign.floating=Floating movement joystick
 touchRedesign.panelLeft=More panel on the left
 touchRedesign.grid=Snap editor to 8 dp grid
+touchRedesign.compact=Compact HUD (secondary actions in More)

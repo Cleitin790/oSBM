@@ -164,6 +164,7 @@ void loadTouchAimOptions(MobileTouchConfig& config, Json const& json) {
   config.floatingMovement = json.queryBool("touch.floatingMovement", true);
   config.panelLeft = json.queryBool("touch.panelLeft", false);
   config.snapToGrid = json.queryBool("touch.snapToGrid", true);
+  config.compactHud = json.queryBool("touch.compactHud", true);
   config.aimCurve = std::clamp(json.queryFloat("touch.aimCurve", 1.4f), 0.5f, 3.0f);
 }
 
@@ -319,7 +320,17 @@ void applyTouchLayout(std::vector<MobileTouchElement>& elements, int preset) {
   }
 }
 
+bool touchElementInPanel(MobileTouchElement const& e, MobileTouchConfig const& config) {
+  bool manual=config.aimAttackMode==TouchInput::AttackMode::AimOnly || config.aimAttackMode==TouchInput::AttackMode::Release;
+  return TouchLayout::inPanel(e.id.utf8(),e.panel,e.kind==MobileTouchElementKind::Button,
+      e.action.kind==MobileTouchActionKind::MorePanel,config.compactHud,manual);
+}
+
 TouchLayout::Circle touchElementCircle(MobileTouchElement const& e, MobileTouchConfig const& config, TouchLayout::Metrics metrics) {
+  if(config.compactHud && e.action.kind==MobileTouchActionKind::MorePanel)
+    return TouchLayout::placement("more",metrics,48);
+  if(config.compactHud && e.diameterDp<=0 && e.kind==MobileTouchElementKind::Button && !touchElementInPanel(e,config))
+    return TouchLayout::placement(e.id.utf8(),metrics,e.id=="jump" ? 56 : 48,e.size);
   if (e.diameterDp > 0) {
     if (e.adaptive) return TouchLayout::placement(e.id.utf8(), metrics, e.diameterDp, e.size);
     return TouchLayout::clamp({e.position[0] * metrics.width, e.position[1] * metrics.height,
@@ -564,6 +575,20 @@ std::vector<MobileTouchElement> touchElementsFromConfig(Json const& config) {
       }
       if (!merged && !id.empty())
         elements.push_back(touchElementFromJson(savedElementJson, MobileTouchElement{}));
+    }
+  }
+  MobileTouchConfig view; loadTouchAimOptions(view,config);
+  bool hasSecondary=std::any_of(elements.begin(),elements.end(),[&](auto const& e) { return e.enabled && touchElementInPanel(e,view); });
+  if(view.compactHud && hasSecondary) {
+    auto more=std::find_if(elements.begin(),elements.end(),[](auto const& e) { return e.action.kind==MobileTouchActionKind::MorePanel; });
+    if(more!=elements.end()) more->enabled=true;
+    else {
+      auto defaults=defaultTouchElements();
+      auto button=*std::find_if(defaults.begin(),defaults.end(),[](auto const& e) { return e.action.kind==MobileTouchActionKind::MorePanel; });
+      size_t sequence=0;
+      do { button.id=strf("compactMore{}",sequence++); }
+      while(std::any_of(elements.begin(),elements.end(),[&](auto const& e) { return e.id==button.id; }));
+      elements.push_back(std::move(button));
     }
   }
   return elements;
@@ -817,7 +842,7 @@ public:
     bool panelHeld = false;
     for (auto const& entry : m_fingers) {
       auto element = findElement(entry.second.elementId);
-      panelHeld |= element && element->panel;
+      panelHeld |= element && touchElementInPanel(*element,m_config);
     }
     m_drawer.tick(Time::monotonicMilliseconds() / 1000.0, panelHeld);
     if (m_config.enabled && m_context == 0)
@@ -1155,6 +1180,9 @@ private:
     auto size = canvasSize();
     return {size[0], size[1], m_displayScalePtr ? *m_displayScalePtr : 1, m_config.size};
   }
+  bool allowed(MobileTouchElement const& e) const {
+    return e.enabled && (m_config.lockOnEnabled || (e.action.kind!=MobileTouchActionKind::TargetLockToggle && e.action.kind!=MobileTouchActionKind::TargetLockNext));
+  }
   bool visible(MobileTouchElement const& e) const {
     size_t i = &e - m_elements.data();
     return e.enabled && i < m_geometry.size() && m_geometry[i].visible
@@ -1171,18 +1199,18 @@ private:
     for (size_t i = 0; i < m_elements.size(); ++i) {
       auto const& e = m_elements[i];
       auto c = touchElementCircle(e,m_config,metrics);
-      c.visible = e.enabled && !e.panel;
+      c.visible = allowed(e) && !touchElementInPanel(e,m_config);
       if (!m_config.lockOnEnabled && (e.action.kind == MobileTouchActionKind::TargetLockToggle || e.action.kind == MobileTouchActionKind::TargetLockNext)) c.visible = false;
       if (e.action.kind == MobileTouchActionKind::MorePanel && m_config.panelLeft) c.x = metrics.width - c.x;
-      if (c.visible && e.adaptive && e.kind != MobileTouchElementKind::PerformanceCounter)
+      if (c.visible && (e.adaptive || (m_config.compactHud && e.kind==MobileTouchElementKind::Button)) && e.kind != MobileTouchElementKind::PerformanceCounter)
         c = TouchLayout::avoid(c,metrics,m_hud,m_geometry.data(),i);
       m_geometry[i] = c;
-      panelCount += e.enabled && e.panel;
+      panelCount += allowed(e) && touchElementInPanel(e,m_config);
     }
     TouchLayout::Circle menu{}, movement{}, aim{};
     menu.visible=movement.visible=aim.visible=false;
     for(size_t i=0;i<m_elements.size();++i) {
-      if(m_elements[i].id=="more") menu=m_geometry[i];
+      if(m_elements[i].action.kind==MobileTouchActionKind::MorePanel) menu=m_geometry[i];
       if(m_elements[i].kind==MobileTouchElementKind::Joystick) movement=m_geometry[i];
       if(m_elements[i].kind==MobileTouchElementKind::AimJoystick) aim=m_geometry[i];
     }
@@ -1193,7 +1221,7 @@ private:
     size_t index = 0;
     for (size_t i=0;i<m_elements.size();++i) {
       auto const& e=m_elements[i];
-      if (!e.enabled || !e.panel) continue;
+      if (!allowed(e) || !touchElementInPanel(e,m_config)) continue;
       auto c=cells.cells[index%capacity];
       c.visible=cells.count && m_drawer.open && index/capacity==m_drawer.page;
       if (!m_config.lockOnEnabled && (e.action.kind==MobileTouchActionKind::TargetLockToggle || e.action.kind==MobileTouchActionKind::TargetLockNext)) c.visible=false;
@@ -1203,9 +1231,9 @@ private:
     // The drawer temporarily replaces any intersecting edge controls. Existing
     // owners keep receiving move/up/cancel events and never transfer pointers.
     if (m_drawer.open) for (size_t i=0;i<m_elements.size();++i) {
-      if (m_elements[i].panel || m_elements[i].action.kind==MobileTouchActionKind::MorePanel) continue;
+      if (touchElementInPanel(m_elements[i],m_config) || m_elements[i].action.kind==MobileTouchActionKind::MorePanel) continue;
       for (size_t j=0;j<m_elements.size();++j)
-        if (m_elements[j].panel && !TouchLayout::separated(m_geometry[i],m_geometry[j],8*metrics.dp())) m_geometry[i].visible=false;
+        if (touchElementInPanel(m_elements[j],m_config) && !TouchLayout::separated(m_geometry[i],m_geometry[j],8*metrics.dp())) m_geometry[i].visible=false;
     }
     m_previousDrawer=m_drawer;
   }
@@ -1664,7 +1692,7 @@ private:
     }
 
     auto releasedElement = findElement(ptr->elementId);
-    if (releasedElement && releasedElement->panel) m_drawer.close();
+    if (releasedElement && touchElementInPanel(*releasedElement,m_config)) m_drawer.close();
     m_fingers.remove(finger);
   }
 

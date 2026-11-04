@@ -403,3 +403,4 @@ touchRedesign.floating=Direcional flutuante
 touchRedesign.panelLeft=Painel Mais à esquerda
 touchRedesign.grid=Encaixar na grade de 8 dp
 touchRedesign.holdAttack=Usar enquanto toca no joystick de mira
+touchRedesign.compact=HUD compacto (ações secundárias em Mais)

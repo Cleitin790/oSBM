@@ -56,6 +56,12 @@ movimento/pulo à esquerda, mira com uso contínuo e arco de ações à direita,
 e painel **Mais** com atalhos paginados. A hotbar continua selecionável por
 toque e deslize, sem botões sobre a vida ou os slots.
 
+**HUD compacto** fica ligado por padrão: ações secundárias, inclusive em
+layouts antigos, aparecem somente em **Mais**. Desative essa opção para
+recuperar a organização completa. No inventário, **Ações** abre os comandos
+de organização/divisão numa lateral recolhível, deixando os slots da hotbar
+acessíveis para arrastar itens.
+
 No launcher, abra **Controles/Overlay → Layout preset**, escolha **Padrão**,
 **Minimalista**, **Construção** ou **Gamepad Touch**, pressione **Aplicar novo
 layout** e **Salvar**. São layouts visuais escolhidos pelo usuário; o gamepad

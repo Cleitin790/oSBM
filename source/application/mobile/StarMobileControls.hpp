@@ -102,6 +102,7 @@ struct MobileTouchConfig {
   bool floatingMovement = true;
   bool panelLeft = false;
   bool snapToGrid = true;
+  bool compactHud = true;
 };
 
 enum class MobileGamepadStickMode {
@@ -217,6 +218,7 @@ PerformanceCounterMode perfCounterModeFromName(String const& name, PerformanceCo
 std::vector<MobileTouchElement> defaultTouchElements();
 void applyTouchLayout(std::vector<MobileTouchElement>& elements, int preset);
 TouchLayout::Circle touchElementCircle(MobileTouchElement const& element, MobileTouchConfig const& config, TouchLayout::Metrics metrics);
+bool touchElementInPanel(MobileTouchElement const& element, MobileTouchConfig const& config);
 std::vector<MobileGamepadBinding> defaultGamepadBindings();
 String elementKindName(MobileTouchElementKind kind);
 MobileTouchElementKind elementKindFromName(String const& name);

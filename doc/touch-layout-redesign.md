@@ -1,5 +1,31 @@
 # Layout touch por zonas
 
+## HUD compacto e hotbar livre
+
+**HUD compacto** fica ligado por padrão, inclusive ao carregar layouts antigos.
+Na tela ficam movimento, mira, pulo, interação, pausa e Mais; a mão principal
+também fica disponível quando a opção de mira exige ataque manual. Habilidade,
+agachar, trava/próximo, Q1–Q3, mineração e as demais ações habilitadas ficam no
+painel Mais. Isso também vale para o preset Construção; desligue HUD compacto
+para usar a visibilidade completa definida pelo layout.
+
+A organização é aplicada na visualização: posições, rótulos, comandos e flags
+de visibilidade não são zerados. Um botão Mais é disponibilizado se necessário,
+sem substituir comandos remapeados. Desligar HUD compacto recupera a organização
+completa anterior. Botões desabilitados e a opção de trava continuam respeitados.
+
+No inventário, **Ações** abre uma coluna lateral com Mover, Info, 1 item, Metade,
+Ordenar, Juntar e Guardar materiais. Ela começa recolhida a cada abertura e
+fecha quando um item está no cursor; fechar retorna para Mover. Nenhuma dessas
+opções é colocada acima do inventário. Slots nativos e hotbar conservam suas
+posições e callbacks, permitindo arrastar a lanterna/espada para a hotbar.
+
+Regressões automatizadas cobrem agrupamento de layouts antigos, preservação do
+ataque manual e a geometria da coluna lateral dentro da altura original do
+inventário em escalas de GUI de 1,35 a 3. A confirmação visual e o arrasto real
+no aparelho continuam necessários. As tabelas abaixo descrevem o layout
+completo, disponível ao desligar HUD compacto.
+
 O overlay é C++/ImGui: `source/application/mobile/StarMobileControls.cpp/.hpp`.
 O editor/persistência ficam em `StarMobilePlatform.cpp`; medidas e restrições
 sem SDL ficam em `source/core/StarTouchLayout.hpp`. O host Android encaminha

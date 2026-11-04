@@ -2,7 +2,8 @@
 
 ## Inventário
 
-No caminho mobile/desktop launcher, uma faixa acima do inventário oferece:
+No caminho mobile/desktop launcher, o botão **Ações**, na lateral do inventário,
+abre as opções abaixo. O painel começa recolhido e não ocupa a hotbar:
 
 - **Mover:** toque para pegar/colocar e arraste para transferir, como antes.
 - **Info:** toque para mostrar o tooltip nativo sem pegar nem usar o item.
@@ -22,8 +23,11 @@ Os alvos de toque dos slots recebem 15% de margem adicional sobre o mínimo
 já existente, sem ampliar os desenhos dos slots ou a janela inteira. O alvo
 visual tem prioridade sobre as margens dos vizinhos; os alvos ficam dentro da
 janela, respeitam recortes de rolagem e enviam cliques ao centro da parte
-visível. A faixa adicional usa 22 unidades de interface além da faixa de
-organização já existente. Modos de divisão ficam indisponíveis com um augment
+visível. As ações usam uma coluna à direita, dentro da altura original da
+janela; nenhum botão é acrescentado acima dela. Pegar um item recolhe essa
+coluna e retorna para Mover, deixando a hotbar livre como destino do arrasto.
+Fechar as ações e reabrir o inventário também retorna para Mover.
+Modos de divisão ficam indisponíveis com um augment
 no cursor, evitando ativar a aplicação de augment pelo clique direito.
 
 Esses gestos reutilizam as rotinas dos inventários/baús: não criam cópias de

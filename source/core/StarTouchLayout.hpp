@@ -28,6 +28,24 @@ void fitLabel(char* out, size_t capacity, std::string_view text, float width, Me
 }
 struct Circle { float x = 0, y = 0, radius = 0; bool visible = true; };
 struct Rect { float left = 0, top = 0, right = 0, bottom = 0; };
+inline bool compactPrimary(std::string_view id, bool moreAction, bool manualPrimary) {
+  return moreAction || id=="jump" || id=="interact" || id=="pause" || (id=="leftHand" && manualPrimary);
+}
+inline bool inPanel(std::string_view id, bool explicitlyGrouped, bool button, bool moreAction, bool compact, bool manualPrimary) {
+  if(moreAction || (compact && manualPrimary && id=="leftHand")) return false;
+  return explicitlyGrouped || (compact && button && !compactPrimary(id,moreAction,manualPrimary));
+}
+// Native inventory widget units, bottom-up. Extend sideways, never above the
+// original pane: the space above it belongs to the hotbar/drop destinations.
+struct InventoryToolsLayout {
+  float nativeWidth, nativeHeight;
+  float width() const { return nativeWidth+76; }
+  Rect row(size_t index) const {
+    float step=std::min(20.f,(nativeHeight-16)/8);
+    float top=nativeHeight-8-index*step;
+    return {nativeWidth+6,top-step+2,nativeWidth+70,top};
+  }
+};
 struct Viewport { float width=1, height=1, left=0, top=0; };
 inline std::array<float,2> inputPoint(std::array<float,2> local, Viewport touch, Viewport game, float width, float height) {
   return {(local[0]+touch.left-game.left)*width/std::max(1.f,game.width),
@@ -101,6 +119,9 @@ inline Circle placement(std::string_view id, Metrics m, float diameterDp, float 
   } else if (id == "miningMode" || id == "singleBlock") {
     c.x=m.width*.27f;
     c.y=m.height*(id=="miningMode" ? .30f : .46f);
+  } else if (id == "leftHand") {
+    c.x=m.width-(x+arc)*d;
+    c.y-=(2*button+8)*d;
   }
   return clamp(c, m);
 }

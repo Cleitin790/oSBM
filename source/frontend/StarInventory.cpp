@@ -204,10 +204,25 @@ InventoryPane::InventoryPane(MainInterface* parent, PlayerPtr player, ContainerI
 
   invWindowReader.construct(config.get("paneLayout"), this);
 
-  // Add a separate strip above the native pane. Existing slots, artwork and
-  // callbacks retain their positions; the strip participates in pane bounds.
+  // Keep every native slot/artwork position. On the touch app path, tools
+  // live in a collapsed sidebar, leaving the hotbar above the pane untouched.
   Vec2I originalSize = size();
   int width = std::max(1, (originalSize[0] - 8) / 3);
+#ifdef STAR_PLATFORM_MOBILE
+  TouchLayout::InventoryToolsLayout tools{(float)originalSize[0],(float)originalSize[1]};
+  auto placeTool = [&](ButtonWidgetPtr const& button, size_t row) {
+    auto rect=tools.row(row);
+    button->setPosition({(int)rect.left,(int)rect.top});
+    button->setSize({(int)(rect.right-rect.left),(int)(rect.bottom-rect.top)});
+  };
+  // Rect stores lower/upper bounds in widget coordinates (Y grows upward).
+  m_toolsToggle=make_shared<InventoryQuickButton>();
+  m_toolsToggle->setText("Ações");
+  m_toolsToggle->setFontSize(6);
+  m_toolsToggle->setCallback([this](Widget*) { setToolsExpanded(!m_toolsExpanded); });
+  placeTool(m_toolsToggle,0);
+  addChild("osbmInventoryTools",m_toolsToggle);
+#endif
   auto addQuickButton = [&](String name, String label, WidgetCallbackFunc callback) {
     auto button = make_shared<InventoryQuickButton>();
     button->setText(label);
@@ -215,6 +230,10 @@ InventoryPane::InventoryPane(MainInterface* parent, PlayerPtr player, ContainerI
     button->setCallback(std::move(callback));
     button->setSize({width - 2, 18});
     button->setPosition({4 + (int)m_quickActionButtons.size() * width, originalSize[1] + 2});
+#ifdef STAR_PLATFORM_MOBILE
+    placeTool(button,5+m_quickActionButtons.size());
+    button->hide();
+#endif
     addChild(name, button);
     m_quickActionButtons.append(button);
   };
@@ -231,11 +250,12 @@ InventoryPane::InventoryPane(MainInterface* parent, PlayerPtr player, ContainerI
     button->setFontSize(6);
     button->setCallback([this, i](Widget*) { m_parent->setTouchItemAction((TouchInput::ItemAction)i); });
     button->setSize({touchWidth - 2, 18});
-    button->setPosition({4 + i * touchWidth, originalSize[1] + 24});
+    placeTool(button,1+i);
+    button->hide();
     addChild(strf("osbmTouchItem{}", i), button);
     m_touchActionButtons.append(button);
   }
-  setSize(originalSize + Vec2I(0, 44));
+  setSize({(int)tools.width(),originalSize[1]});
 #endif
 
   m_trashSlot = fetchChild<ItemSlotWidget>("trash");
@@ -290,6 +310,16 @@ InventoryPane::InventoryPane(MainInterface* parent, PlayerPtr player, ContainerI
   m_someUpSounds = jsonToStringList(config.get("sounds").get("someup"));
   m_someDownSounds = jsonToStringList(config.get("sounds").get("somedown"));
 }
+
+#ifdef STAR_PLATFORM_MOBILE
+void InventoryPane::setToolsExpanded(bool expanded) {
+  m_toolsExpanded=expanded;
+  m_toolsToggle->setHighlighted(expanded);
+  for(auto const& button : m_quickActionButtons) button->setVisibility(expanded);
+  for(auto const& button : m_touchActionButtons) button->setVisibility(expanded);
+  if(!expanded) m_parent->setTouchItemAction(TouchInput::ItemAction::Move);
+}
+#endif
 
 bool InventoryPane::quickActionsBusy() const {
   return m_expectingSwap || (bool)m_materialDeposit || !m_materialDepositSlots.empty();
@@ -369,6 +399,9 @@ void InventoryPane::updateMaterialDeposit() {
 
 void InventoryPane::displayed() {
   Pane::displayed();
+#ifdef STAR_PLATFORM_MOBILE
+  setToolsExpanded(false);
+#endif
   m_expectingSwap = false;
 
   for (auto grid : m_itemGrids)
@@ -480,6 +513,7 @@ void InventoryPane::update(float dt) {
   auto context = Widget::context();
 #ifdef STAR_PLATFORM_MOBILE
   bool cursorBusy = (bool)inventory->swapSlotItem();
+  if(cursorBusy && m_toolsExpanded) setToolsExpanded(false);
   bool cursorAugment = is<AugmentItem>(inventory->swapSlotItem());
   if ((m_parent->touchItemAction() == TouchInput::ItemAction::Half && cursorBusy)
       || (TouchInput::itemSplit(m_parent->touchItemAction()) && cursorAugment))

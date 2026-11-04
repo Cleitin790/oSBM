@@ -59,6 +59,9 @@ private:
   List<ButtonWidgetPtr> m_quickActionButtons;
 #ifdef STAR_PLATFORM_MOBILE
   List<ButtonWidgetPtr> m_touchActionButtons;
+  ButtonWidgetPtr m_toolsToggle;
+  bool m_toolsExpanded = false;
+  void setToolsExpanded(bool expanded);
 #endif
 
   MainInterface* m_parent;

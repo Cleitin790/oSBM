@@ -2162,7 +2162,7 @@ private:
     int slot = action.quickSlot + 1;
     if (ImGui::SliderInt(launcherText("shortcut.slot", "Bar slot (main hand)").utf8Ptr(), &slot, 1, 10)) action.quickSlot = slot - 1;
     ImGui::Checkbox(launcherText("shortcut.hold", "Use while held").utf8Ptr(), &action.quickUse);
-    ImGui::TextWrapped(launcherText("shortcut.help", "Put the chosen item in the left/main hand position of this slot in your current hotbar group. Off: equip only. On: equip and use while held; release stops use. The item stays equipped. Enable Q1/Q2/Q3 and rename them in the layout editor.").utf8Ptr());
+    ImGui::TextWrapped("%s", launcherText("shortcut.help", "Put the chosen item in the left/main hand position of this slot in your current hotbar group. Off: equip only. On: equip and use while held; release stops use. The item stays equipped. Enable Q1/Q2/Q3 and rename them in the layout editor.").utf8Ptr());
     ImGui::PopID();
   }
 
@@ -3350,7 +3350,7 @@ private:
       addQuickShortcut(state);
       state.touchPreviewOpen = true;
     }
-    ImGui::TextWrapped(launcherText("shortcut.addHint", "Add as many buttons as fit your screen. A shortcut links to the main-hand item in a hotbar slot; choose its slot in the editor. Changes apply only after Save.").utf8Ptr());
+    ImGui::TextWrapped("%s", launcherText("shortcut.addHint", "Add as many buttons as fit your screen. A shortcut links to the main-hand item in a hotbar slot; choose its slot in the editor. Changes apply only after Save.").utf8Ptr());
 
     if (ImGui::Button(launcherText("touchManager.newButton", "New Button").utf8Ptr())) {
       state.newTouchButtonPopup = true;
@@ -3420,13 +3420,13 @@ private:
               ImGui::SameLine();
               if (ImGui::Button(launcherText("shortcut.delete", "Delete...").utf8Ptr())) ImGui::OpenPopup(launcherText("shortcut.deleteTitle", "Delete custom control").utf8Ptr());
               if (ImGui::BeginPopupModal(launcherText("shortcut.deleteTitle", "Delete custom control").utf8Ptr(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                ImGui::TextWrapped(launcherText("shortcut.deleteConfirm", "Remove this custom control? Undo layout switch can restore it before saving.").utf8Ptr());
+                ImGui::TextWrapped("%s", launcherText("shortcut.deleteConfirm", "Remove this custom control? Undo layout switch can restore it before saving.").utf8Ptr());
                 if (ImGui::Button(launcherText("common.remove", "Remove").utf8Ptr())) { deleteControl = i; ImGui::CloseCurrentPopup(); }
                 ImGui::SameLine();
                 if (ImGui::Button(launcherText("common.cancel", "Cancel").utf8Ptr())) ImGui::CloseCurrentPopup();
                 ImGui::EndPopup();
               }
-            } else ImGui::TextDisabled(launcherText("shortcut.builtinHint", "Built-in control: disable it to hide it.").utf8Ptr());
+            } else ImGui::TextDisabled("%s", launcherText("shortcut.builtinHint", "Built-in control: disable it to hide it.").utf8Ptr());
             if (ImGui::InputText(launcherText("touchManager.displayedText", "Displayed text").utf8Ptr(), state.touchLabelBuffer, sizeof(state.touchLabelBuffer)))
               element.label = String(state.touchLabelBuffer).trim();
           }

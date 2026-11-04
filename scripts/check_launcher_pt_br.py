@@ -42,6 +42,12 @@ def main():
         # Human-readable direct ImGui labels must use the translation API.
         raw = re.findall(r'ImGui::(?:Button|Text\w*|Checkbox|Slider\w*|BeginCombo|InputText\w*|Selectable)\("([A-Za-z][^"]*)"', source)
         assert not [label for label in raw if label not in ('v', 'x')], (name, raw)
+        # Translated text is data, not a printf format. Keep explicit "%s"
+        # when a text widget receives only the translated message.
+        literal = r'"(?:[^"\\]|\\.)*"'
+        translated = rf'launcherText(?:Static)?\(\s*{literal}\s*,\s*{literal}\s*\)\.utf8Ptr\(\)'
+        unsafe = re.findall(rf'ImGui::(?:Text|TextWrapped|TextDisabled|BulletText|SetTooltip)\(\s*({translated})\s*\)', source)
+        assert not unsafe, (name, 'translated text used as a format string; pass "%s" first', unsafe)
     print(f'PASS: {len(portuguese)} PT-BR entries, {len(english)} English entries, {count} source lookups; placeholders and labels checked')
 
 

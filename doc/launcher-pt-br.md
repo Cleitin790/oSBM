@@ -34,6 +34,15 @@ existentes copiam a pasta lang inteira para os destinos de cada plataforma.
   389 inglesas**, **494 referências no código**, sem chaves faltando, duplicadas,
   vazias ou incompatibilidades de placeholders. Também verifica rótulos ImGui
   diretos nos dois arquivos de interface.
+- Correção posterior à execução Actions `41859437116`: quatro mensagens dos
+  atalhos agora usam `TextWrapped("%s", texto)` / `TextDisabled("%s", texto)`.
+  Antes, o texto traduzido era passado diretamente como formato e o Android
+  rejeitava a compilação com `-Werror=format-security`. Os quatro erros foram
+  reproduzidos com NDK r26d; o arquivo corrigido passou em sintaxe Android
+  arm64 e compilação de objeto Windows launcher com `-Wformat` e
+  `-Werror=format-security`. O script de tradução também rejeita essas chamadas
+  incorretas (falhou antes da correção e passou depois). Isso não substitui
+  uma nova geração completa do APK no GitHub ou teste no aparelho.
 - Seis checks pontuais: StarMobilePlatform.cpp, StarMobileControls.cpp e
   StarMobileLauncherSupport.cpp em sintaxe Android arm64/API28/NDK r26d e
   objetos Windows launcher. Todos aprovados após corrigir a composição de um

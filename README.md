@@ -51,6 +51,24 @@ There are many features that oSBM has that you should know about.
 
 ### Controls Manager
 
+Este fork oferece o novo [layout touch por zonas](doc/touch-layout-redesign.md):
+movimento/pulo à esquerda, mira com uso contínuo e arco de ações à direita,
+e painel **Mais** com atalhos paginados. A hotbar continua selecionável por
+toque e deslize, sem botões sobre a vida ou os slots.
+
+No launcher, abra **Controles/Overlay → Layout preset**, escolha **Padrão**,
+**Minimalista**, **Construção** ou **Gamepad Touch**, pressione **Aplicar novo
+layout** e **Salvar**. São layouts visuais escolhidos pelo usuário; o gamepad
+mantém seu esquema e seus remapeamentos. Configurações antigas são preservadas
+até essa aplicação explícita.
+
+Em **Prévia / Ajustar layout**, arraste os círculos ou use os sliders de
+tamanho, posição e opacidade. A grade usa 8 dp; vermelho indica HUD estimado
+ou sobreposição. Cada botão pode ser desativado ou guardado em **Mais**.
+Layouts nomeados ficam no JSON do launcher e podem ter variantes por
+orientação/proporção. Há restaurar padrão e desfazer. O documento inclui a
+tabela completa e o roteiro de teste no Redmi Note 13.
+
 Neste fork, veja o [guia de controles de toque](doc/touch-controls.md) para mira,
 ataque opcional, bloco único, layouts, gestos de inventário e testes no Android.
 Há também [trava de alvo opcional](doc/optional-target-lock.md), com prioridade

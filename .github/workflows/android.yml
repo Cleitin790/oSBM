@@ -1,6 +1,19 @@
 name: Gerar APK Android
 
 on:
+  # Also reused by the touch-layout PR checks; APK packaging remains on GitHub.
+  workflow_call:
+    inputs:
+      build_type:
+        required: true
+        type: string
+      arch:
+        required: true
+        type: string
+      system_allocator:
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       build_type:
@@ -51,7 +64,7 @@ jobs:
         run: echo 'Workflow válido; compilação de APK disponível pelo botão Run workflow.'
 
   build_android:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     name: Build Android APK (${{ inputs.arch }})
     runs-on: ubuntu-24.04
     steps:

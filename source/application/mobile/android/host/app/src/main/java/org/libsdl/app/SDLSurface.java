@@ -44,6 +44,9 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
 
     // Keep track of the surface size to normalize touch events
     protected float mWidth, mHeight;
+    // Android provides contact width; SDL_FingerEvent only retains pressure.
+    // Latch rejection on DOWN so a noisy width change cannot drop a held stick.
+    private final android.util.SparseBooleanArray mRejectedPalms = new android.util.SparseBooleanArray(16);
 
     // Is SurfaceView ready for rendering
     public boolean mIsSurfaceReady;
@@ -251,6 +254,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         int touchDevId = event.getDeviceId();
         final int pointerCount = event.getPointerCount();
         int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) mRejectedPalms.clear();
         int pointerId;
         int i = 0;
         float x,y,p;
@@ -299,7 +303,17 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                     p = 1.0f;
                 }
 
-                SDLActivity.onNativeTouch(touchDevId, pointerId, action, x, y, p);
+                boolean starting = action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN;
+                float density = getResources().getDisplayMetrics().density;
+                if (starting && event.getTouchMajor(i) > 48.0f * density) {
+                    mRejectedPalms.put(pointerId, true);
+                }
+                if (!mRejectedPalms.get(pointerId)) {
+                    SDLActivity.onNativeTouch(touchDevId, pointerId, action, x, y, p);
+                }
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP || action == MotionEvent.ACTION_CANCEL) {
+                    mRejectedPalms.delete(pointerId);
+                }
             }
 
             // Non-primary up/down

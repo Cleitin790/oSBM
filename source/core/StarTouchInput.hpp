@@ -159,13 +159,13 @@ inline bool overlaps(float x, float y, float rx, float ry, float left, float top
   return x + rx > left && x - rx < right && y + ry > top && y - ry < bottom;
 }
 
-enum class AttackMode { AimOnly, Release, Continuous };
+enum class AttackMode { AimOnly, Release, Continuous, Hold };
 struct AimAttack {
   bool held = false, armed = false;
   // Retorna a borda desejada; o adaptador mantém contagem de donos do botão.
   bool update(AttackMode mode, bool outside) {
     armed = outside;
-    held = mode == AttackMode::Continuous && outside;
+    held = mode == AttackMode::Hold || (mode == AttackMode::Continuous && outside);
     return held;
   }
   bool release(AttackMode mode, bool canceled) {

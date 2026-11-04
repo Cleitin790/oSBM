@@ -1,5 +1,10 @@
 # Controles de toque e interface móvel
 
+O layout padrão foi redesenhado: consulte [layout touch por zonas](touch-layout-redesign.md)
+para os controles, perfis visuais, medidas, editor e validação atuais. As seções
+abaixo registram a implementação anterior e seus gestos; contagens, posições,
+presets e o padrão de ataque antigos foram substituídos pelo novo documento.
+
 Implementação na branch `codex/import-claude-touch-controls-20261103`, para revisão
 no PR #3. Não há troca automática de esquema por arma, mineração ou construção.
 Os perfis desta página são layouts visuais escolhidos no launcher. O gamepad

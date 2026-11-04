@@ -8,6 +8,9 @@
 #include "StarInterfaceCursor.hpp"
 #include "StarMainInterfaceTypes.hpp"
 #include "StarWarping.hpp"
+#ifdef STAR_PLATFORM_MOBILE
+#include "StarTouchLayout.hpp"
+#endif
 
 namespace Star {
 
@@ -116,6 +119,7 @@ public:
 
 #ifdef STAR_PLATFORM_MOBILE
   void renderTouchShortcut(TouchShortcutVisual const& visual);
+  TouchLayout::Hud touchOverlayHud() const;
   bool directionalMiningEnabled() const { return m_directionalMining; }
   void setTouchItemAction(TouchInput::ItemAction action) { m_paneManager.setTouchItemAction(action); }
   TouchInput::ItemAction touchItemAction() const { return m_paneManager.touchItemAction(); }

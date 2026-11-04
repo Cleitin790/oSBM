@@ -27,6 +27,7 @@ public:
 #ifdef STAR_PLATFORM_MOBILE
   unsigned touchInputMode() const override;
   bool touchDirectionalMining() const override;
+  TouchLayout::Hud touchOverlayHud() const override;
   bool renderTouchShortcut(TouchShortcutVisual const& visual) override;
 #endif
 

@@ -723,6 +723,22 @@ void MainInterface::handleInteractAction(InteractAction interactAction) {
 }
 
 #ifdef STAR_PLATFORM_MOBILE
+TouchLayout::Hud MainInterface::touchOverlayHud() const {
+  TouchLayout::Hud hud;
+  float w = std::max(1u, windowWidth()), h = std::max(1u, windowHeight());
+  auto add = [&](RectF r) { hud.add({r.xMin() / w, 1 - r.yMax() / h, r.xMax() / w, 1 - r.yMin() / h}); };
+  for (auto id : {MainInterfacePanes::ActionBar, MainInterfacePanes::TeamBar, MainInterfacePanes::StatusPane}) {
+    if (m_paneManager.registeredPaneIsDisplayed(id)) {
+      auto pane=m_paneManager.registeredPane(id);
+      if (pane->size()[0]>0 && pane->size()[1]>0)
+        add(RectF(pane->screenBoundRect()).scaled(interfaceScale()));
+    }
+  }
+  add(RectF::withSize(mainBarPosition(), Vec2F(m_config->mainBarSize) * interfaceScale()));
+  hud.locked = m_lockTarget != NullEntityId;
+  return hud;
+}
+
 void MainInterface::renderTouchShortcut(TouchShortcutVisual const& visual) {
   auto inventory = m_client->mainPlayer()->inventory();
   ItemPtr item;

@@ -115,3 +115,7 @@ SET_TESTS_PROPERTIES(directional_mining_tests PROPERTIES LABELS "NoAssets")
 ADD_EXECUTABLE (touch_ux_tests touch_ux_test.cpp)
 ADD_TEST (NAME touch_ux_tests COMMAND touch_ux_tests)
 SET_TESTS_PROPERTIES(touch_ux_tests PROPERTIES LABELS "NoAssets")
+
+ADD_EXECUTABLE (touch_layout_tests touch_layout_test.cpp)
+ADD_TEST (NAME touch_layout_tests COMMAND touch_layout_tests)
+SET_TESTS_PROPERTIES(touch_layout_tests PROPERTIES LABELS "NoAssets")

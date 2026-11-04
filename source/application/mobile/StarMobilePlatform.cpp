@@ -279,14 +279,18 @@ struct LauncherState {
   MobileTouchConfig touchConfig;
   std::vector<MobileTouchElement> touchElements;
   JsonArray touchLayoutProfiles;
+  String activeTouchLayout;
   char touchProfileName[64] = {};
-  int touchPreset = 4; // Recommended geometry; never applied until requested.
+  int touchPreset = 0; // Recommended geometry; never applied until requested.
   Maybe<float> interfaceScaleOverride;
   MobileGamepadConfig gamepadConfig;
   std::vector<MobileGamepadBinding> gamepadBindings;
   bool touchManagerOpen = false;
   bool gamepadManagerOpen = false;
   bool touchPreviewOpen = false;
+  int touchDragElement = -1;
+  Vec2F touchDragOffset;
+  std::vector<TouchLayout::Circle> touchPreviewCircles;
   int selectedTouchElement = 0;
   String touchLabelBufferElementId;
   char touchLabelBuffer[64] = {};
@@ -1443,7 +1447,8 @@ private:
     state.touchConfig.gyroInvertX = config.queryBool("touch.gyroInvertX", false);
     state.touchConfig.gyroInvertY = config.queryBool("touch.gyroInvertY", false);
     loadTouchAimOptions(state.touchConfig, config);
-    state.touchElements = touchElementsFromConfig(config);
+    state.touchElements = touchElementsForScreen(config,gameCanvasSize());
+    state.activeTouchLayout = config.queryString("touch.activeLayout", "");
     state.touchLayoutProfiles = config.queryArray("touch.layoutProfiles", {});
     state.interfaceScaleOverride = config.optQueryFloat("display.interfaceScale");
     state.gamepadConfig = gamepadConfigFromConfig(config);
@@ -1458,6 +1463,7 @@ private:
 
   std::vector<pair<String, MobileTouchAction>> touchActionChoices() const {
     return {
+      {launcherText("touchElement.more", "More"), [] { MobileTouchAction a; a.kind=MobileTouchActionKind::MorePanel; return a; }()},
       {launcherText("touchActionChoice.leftHandMouseLeft", "Left Hand / Mouse Left"), mouseAction(MouseButton::Left)},
       {launcherText("touchActionChoice.rightHandMouseRight", "Right Hand / Mouse Right"), mouseAction(MouseButton::Right)},
       {launcherText("touchActionChoice.jump", "Jump / J (Space)"), keyAction(Key::Space)},
@@ -2141,6 +2147,8 @@ private:
     do { element.id = strf("custom{}", sequence++); }
     while (std::any_of(state.touchElements.begin(), state.touchElements.end(), [&](auto const& old) { return old.id == element.id; }));
     element.enabled = true;
+    element.diameterDp=std::max(48.f,element.diameterDp); element.panel=true; element.adaptive=false;
+    state.activeTouchLayout.clear();
     state.touchElements.push_back(std::move(element));
     state.selectedTouchElement = (int)state.touchElements.size() - 1;
   }
@@ -2700,102 +2708,17 @@ private:
     ImGui::EndChild();
   }
 
-  // Deferred label for the preview, drawn with a contrast outline after the
-  // inversion-blended shape pass (see renderTouchPreview).
-  struct PreviewLabel {
-    ImVec2 pos;
-    String text;
-    float opacity = 1.0f;
-  };
-
-  // Same inversion (difference) blend the in-game overlay uses for its
-  // always-visible button geometry (Minecraft's crosshair technique).
-  static void applyTouchPreviewContrastBlend(ImDrawList const*, ImDrawCmd const*) {
-    glBlendEquation(GL_FUNC_ADD);
-    glBlendFuncSeparate(GL_ONE_MINUS_DST_COLOR, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ZERO);
+  TouchLayout::Metrics previewMetrics(LauncherState const& state, ImVec2 size) const {
+    float density=m_displayScale*ImGui::GetIO().DisplaySize.x/std::max(1u,m_windowSize[0]);
+    return {size.x,size.y,density,state.touchConfig.size};
   }
 
-  static void drawPreviewLabelWithOutline(ImDrawList* draw, ImVec2 pos, char const* text, ImU32 color, ImU32 outline) {
-    static ImVec2 const offsets[8] = {
-      {-1.0f, -1.0f}, {0.0f, -1.0f}, {1.0f, -1.0f},
-      {-1.0f,  0.0f},                {1.0f,  0.0f},
-      {-1.0f,  1.0f}, {0.0f,  1.0f}, {1.0f,  1.0f}
-    };
-    for (auto const& o : offsets)
-      draw->AddText(ImVec2(pos.x + o.x, pos.y + o.y), outline, text);
-    draw->AddText(pos, color, text);
-  }
-
-  void renderTouchElementPreview(LauncherState& state, ImDrawList* draw, ImVec2 canvasMin, ImVec2 canvasSize, int index, std::vector<PreviewLabel>& labels) {
-    auto& element = state.touchElements[index];
-    if (!element.enabled)
-      return;
-
-    ImVec2 display = ImGui::GetIO().DisplaySize;
-    float baseRadius = TouchInput::controlRadius(std::min(display.x, display.y), state.touchConfig.size);
-    float radius = baseRadius * std::clamp(element.size, 0.45f, 2.4f);
-    ImVec2 center(canvasMin.x + element.position[0] * canvasSize.x, canvasMin.y + element.position[1] * canvasSize.y);
-
-    // Match the in-game overlay: opaque contrast colours (the inversion blend
-    // ignores alpha) with the opacity setting remapped to a contrast strength,
-    // and the configurable outline thickness.
-    float op = std::clamp(state.touchConfig.opacity * element.opacity, 0.0f, 1.0f);
-    auto contrast = [op](float c) { return 0.5f + (c - 0.5f) * op; };
-    auto contrastColor = [&contrast](float r, float g, float b) {
-      return IM_COL32((int)std::lround(contrast(r) * 255.0f),
-                      (int)std::lround(contrast(g) * 255.0f),
-                      (int)std::lround(contrast(b) * 255.0f), 255);
-    };
-    ImU32 base = contrastColor(1.0f, 1.0f, 1.0f);
-    ImU32 fill = index == state.selectedTouchElement
-        ? contrastColor(0.47f, 0.75f, 1.0f)
-        : contrastColor(0.31f, 0.63f, 1.0f);
-    float thickness = std::max(1.0f, state.touchConfig.outlineThickness);
-    size_t firstLabel = labels.size();
-
-    ImGui::SetCursorScreenPos(ImVec2(center.x - radius, center.y - radius));
-    ImGui::PushID(element.id.utf8Ptr());
-    ImGui::InvisibleButton("##touchControl", ImVec2(radius * 2.0f, radius * 2.0f));
-    if (ImGui::IsItemClicked())
-      state.selectedTouchElement = index;
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-      ImVec2 delta = ImGui::GetIO().MouseDelta;
-      element.position[0] = std::clamp(element.position[0] + delta.x / std::max(1.0f, canvasSize.x), 0.03f, 0.97f);
-      element.position[1] = std::clamp(element.position[1] + delta.y / std::max(1.0f, canvasSize.y), 0.03f, 0.97f);
-    }
-    ImGui::PopID();
-
-    if (element.kind == MobileTouchElementKind::DPad) {
-      float arm = radius * 0.38f;
-      draw->AddRectFilled(ImVec2(center.x - arm, center.y - radius), ImVec2(center.x + arm, center.y + radius), fill, arm * 0.2f);
-      draw->AddRectFilled(ImVec2(center.x - radius, center.y - arm), ImVec2(center.x + radius, center.y + arm), fill, arm * 0.2f);
-      draw->AddRect(ImVec2(center.x - radius, center.y - radius), ImVec2(center.x + radius, center.y + radius), base, arm * 0.25f, 0, thickness);
-      labels.push_back({ImVec2(center.x - radius * 0.38f, center.y - radius * 0.18f), launcherText("touchElement.dpad", "D-PAD")});
-    } else if (element.kind == MobileTouchElementKind::Joystick || element.kind == MobileTouchElementKind::AimJoystick) {
-      draw->AddCircle(center, radius, base, 48, thickness);
-      draw->AddCircleFilled(center, radius * 0.34f, fill, 32);
-    } else if (element.kind == MobileTouchElementKind::PerformanceCounter) {
-      // No shape at runtime (it's a passive display, not a touch target) --
-      // show representative placeholder text instead, so the preview looks
-      // like what actually renders in-game while positioning it.
-      String placeholder = String("60 FPS");
-      if (element.perfCounterMode == PerformanceCounterMode::Detailed)
-        placeholder = String("60 FPS\n60.00Hz\n00512Âµs\n00048Âµs");
-      else if (element.perfCounterMode == PerformanceCounterMode::Memory)
-        placeholder = String("60 FPS\nRAM 1200/3200MB (37%)\nimg 240MB tex 320MB");
-      ImVec2 pos(center.x - radius * 0.55f, center.y - radius * 0.4f);
-      ImVec2 size = ImGui::CalcTextSize(placeholder.utf8Ptr());
-      ImVec2 screen = ImGui::GetIO().DisplaySize;
-      pos.x = std::clamp(pos.x, 1.0f, std::max(1.0f, screen.x - size.x - 1.0f));
-      pos.y = std::clamp(pos.y, 1.0f, std::max(1.0f, screen.y - size.y - 1.0f));
-      labels.push_back({pos, placeholder});
-    } else {
-      draw->AddCircleFilled(center, radius * 0.55f, fill, 32);
-      draw->AddCircle(center, radius * 0.55f, base, 48, thickness);
-      labels.push_back({ImVec2(center.x - radius * 0.22f, center.y - radius * 0.18f), element.label});
-    }
-    for (size_t i = firstLabel; i < labels.size(); ++i)
-      labels[i].opacity = element.opacity;
+  void renderTouchElementPreview(LauncherState& state, ImDrawList* draw, ImVec2 min, int index) {
+    auto const& e=state.touchElements[index];
+    auto c=state.touchPreviewCircles[index];
+    if(!e.enabled) return;
+    MobileTouchInputAdapter::drawPreviewControl(draw,e,{min.x+c.x,min.y+c.y},c.radius,
+        state.touchConfig.opacity*e.opacity,index==state.selectedTouchElement);
   }
 
   // One combo shared by the layout preview and the element list -- they edit
@@ -2857,6 +2780,8 @@ private:
       auto& selected = state.touchElements[state.selectedTouchElement];
       ImGui::Text("%s: %s", launcherText("touchPreview.selectedLabel", "Selected").utf8Ptr(), selected.label.utf8Ptr());
       ImGui::SliderFloat(launcherText("touchPreview.selectedSize", "Selected size").utf8Ptr(), &selected.size, 0.45f, 2.4f);
+      if(selected.diameterDp>0) ImGui::SliderFloat(launcherText("touchRedesign.diameter", "Diameter (dp)").utf8Ptr(),&selected.diameterDp,44,192);
+      ImGui::Checkbox(launcherText("touchRedesign.inPanel", "Keep in More panel").utf8Ptr(),&selected.panel);
       ImGui::SliderFloat(launcherText("touchManager.elementOpacity", "Element opacity").utf8Ptr(), &selected.opacity, 0.0f, 1.0f);
       ImGui::Checkbox(launcherText("common.enabledControl", "Enabled").utf8Ptr(), &selected.enabled);
       if (selected.kind == MobileTouchElementKind::Button) {
@@ -2877,42 +2802,82 @@ private:
       state.touchPreviewOpen = false;
     ImGui::EndChild();
 
-    ImVec4 safe=launcherSafeAreaInImguiUnits(displaySize);
+    float sx=displaySize.x/std::max(1u,m_windowSize[0]), sy=displaySize.y/std::max(1u,m_windowSize[1]);
+    ImVec4 safe(m_touchSafeArea.left*sx,m_touchSafeArea.top*sy,m_touchSafeArea.right*sx,m_touchSafeArea.bottom*sy);
     ImVec2 canvasMin(min.x+safe.x,min.y+safe.y);
     ImVec2 canvasSize(displaySize.x-safe.x-safe.z,displaySize.y-safe.y-safe.w);
-    auto guide=[&](float x,float y,float w,float h,String const& label) {
-      ImVec2 a(canvasMin.x+x*canvasSize.x,canvasMin.y+y*canvasSize.y);
-      draw->AddRect(a,ImVec2(a.x+w*canvasSize.x,a.y+h*canvasSize.y),IM_COL32(255,180,60,180));
-      draw->AddText(a,IM_COL32(255,200,110,255),label.utf8Ptr());
-    };
-    guide(0,0,.22f,.15f,launcherText("touchPreview.healthGuide","Health guide"));
-    guide(.24f,0,.54f,.14f,launcherText("touchPreview.hotbarGuide","Hotbar guide"));
-    guide(0,.70f,.32f,.30f,launcherText("touchPreview.chatGuide","Chat guide"));
-    // Register control drag hitboxes after the toolbar so overlapping controls
-    // can always be pulled out from underneath it. Shapes are drawn with the
-    // same always-visible inversion blend as the in-game overlay; labels are
-    // drawn afterwards under the default blend with a contrast outline.
-    std::vector<PreviewLabel> labels;
-    for (auto const& element : state.touchElements) {
-      if (!element.enabled || element.opacity <= 0 || element.kind == MobileTouchElementKind::PerformanceCounter)
-        continue;
-      float radius = TouchInput::controlRadius(std::min(displaySize.x, displaySize.y), state.touchConfig.size)
-          * std::clamp(element.size, .45f, 2.4f);
-      if (element.kind == MobileTouchElementKind::Button) radius *= .55f;
-      ImVec2 center(canvasMin.x + element.position[0] * canvasSize.x, canvasMin.y + element.position[1] * canvasSize.y);
-      float opacity = std::clamp(state.touchConfig.opacity * element.opacity, 0.0f, 1.0f);
-      draw->AddCircleFilled(center, radius, IM_COL32(12, 18, 26, (int)(140 * opacity)), 32);
+    auto metrics=previewMetrics(state,canvasSize);
+    TouchLayout::Hud guides;
+    guides.add({0,0,1,.16f}); guides.add({.93f,0,1,.32f});
+    for(size_t i=0;i<guides.count;++i) {
+      auto rect=guides.regions[i];
+      ImVec2 a(canvasMin.x+rect.left*canvasSize.x,canvasMin.y+rect.top*canvasSize.y);
+      ImVec2 b(canvasMin.x+rect.right*canvasSize.x,canvasMin.y+rect.bottom*canvasSize.y);
+      draw->AddRectFilled(a,b,IM_COL32(205,50,65,48));
+      draw->AddRect(a,b,IM_COL32(245,80,95,180));
     }
-    draw->AddCallback(applyTouchPreviewContrastBlend, nullptr);
-    for (int i = 0; i < (int)state.touchElements.size(); ++i)
-      renderTouchElementPreview(state, draw, canvasMin, canvasSize, i, labels);
-    draw->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
-
-    float op = std::clamp(state.touchConfig.opacity, 0.0f, 1.0f);
-    for (auto const& label : labels) {
-      ImU32 labelColor = IM_COL32(255, 255, 255, (int)(230.0f * op * label.opacity));
-      ImU32 labelOutline = IM_COL32(0, 0, 0, (int)(210.0f * op * label.opacity));
-      drawPreviewLabelWithOutline(draw, label.pos, label.text.utf8Ptr(), labelColor, labelOutline);
+    float grid=8*metrics.dp();
+    if(state.touchConfig.snapToGrid) {
+      for(float x=0;x<canvasSize.x;x+=grid) draw->AddLine(ImVec2(canvasMin.x+x,canvasMin.y),ImVec2(canvasMin.x+x,canvasMin.y+canvasSize.y),IM_COL32(180,200,220,16));
+      for(float y=0;y<canvasSize.y;y+=grid) draw->AddLine(ImVec2(canvasMin.x,canvasMin.y+y),ImVec2(canvasMin.x+canvasSize.x,canvasMin.y+y),IM_COL32(180,200,220,16));
+    }
+    state.touchPreviewCircles.resize(state.touchElements.size());
+    auto& circles=state.touchPreviewCircles;
+    // Show panel contents on their edge shelf in the editor, even when the
+    // runtime drawer is closed. They remain editable from the element list.
+    for(size_t i=0;i<state.touchElements.size();++i) {
+      auto const& e=state.touchElements[i];
+      auto c=touchElementCircle(e,state.touchConfig,metrics);
+      c.visible=e.enabled && !e.panel;
+      if(c.visible && e.adaptive) c=TouchLayout::avoid(c,metrics,guides,circles.data(),i);
+      circles[i]=c;
+    }
+    TouchLayout::Circle menu{},move{},aim{}; menu.visible=move.visible=aim.visible=false;
+    for(size_t i=0;i<state.touchElements.size();++i) {
+      auto const& e=state.touchElements[i];
+      if(e.id=="more") menu=circles[i];
+      if(e.kind==MobileTouchElementKind::Joystick) move=circles[i];
+      if(e.kind==MobileTouchElementKind::AimJoystick) aim=circles[i];
+    }
+    auto cells=TouchLayout::panelCells(metrics,guides,state.touchConfig.panelLeft,menu,move,aim);
+    size_t panel=0;
+    for(size_t i=0;i<state.touchElements.size();++i) if(state.touchElements[i].panel) {
+      circles[i]=cells.cells[panel%std::max<size_t>(1,cells.count)];
+      circles[i].visible=state.touchElements[i].enabled && panel<cells.count;
+      ++panel;
+    }
+    ImVec2 mouse=ImGui::GetIO().MousePos;
+    float mx=mouse.x-canvasMin.x, my=mouse.y-canvasMin.y;
+    // The toolbar owns its touches; controls behind it cannot start dragging.
+    bool overToolbar=mouse.x<min.x+16+std::min(520.f,displaySize.x-32) && mouse.y<min.y+16+toolbarHeight;
+    if(ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !overToolbar) {
+      for(int i=(int)circles.size()-1;i>=0;--i) if(TouchLayout::contains(circles[i],mx,my)) {
+        state.selectedTouchElement=i; state.touchDragElement=i;
+        state.touchDragOffset={circles[i].x-mx,circles[i].y-my}; break;
+      }
+    }
+    if(state.touchDragElement>=0 && state.touchDragElement<(int)state.touchElements.size()) {
+      int index=state.touchDragElement;
+      auto& e=state.touchElements[index]; auto c=circles[index];
+      if(ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        c.x=mx+state.touchDragOffset[0]; c.y=my+state.touchDragOffset[1];
+        c=TouchLayout::clamp(c,metrics);
+        state.activeTouchLayout.clear();
+        e.position={c.x/canvasSize.x,c.y/canvasSize.y}; e.adaptive=false; e.panel=false; circles[index]=c;
+      } else {
+        if(state.touchConfig.snapToGrid) {
+          c.x=TouchLayout::snap(c.x,metrics.dp()); c.y=TouchLayout::snap(c.y,metrics.dp()); c=TouchLayout::clamp(c,metrics);
+          e.position={c.x/canvasSize.x,c.y/canvasSize.y};
+        }
+        state.touchDragElement=-1;
+      }
+    }
+    for(int i=0;i<(int)state.touchElements.size();++i) {
+      if(!circles[i].visible) continue;
+      renderTouchElementPreview(state,draw,canvasMin,i);
+      bool blocked=TouchLayout::blocked(circles[i],metrics,guides);
+      for(int j=0;j<i;++j) blocked|=!TouchLayout::separated(circles[i],circles[j],8*metrics.dp());
+      if(blocked) draw->AddCircle(ImVec2(canvasMin.x+circles[i].x,canvasMin.y+circles[i].y),circles[i].radius+2,IM_COL32(255,70,90,255),32,3);
     }
 
     ImGui::End();
@@ -3132,43 +3097,28 @@ private:
   bool touchHudOverlap(MobileTouchElement const& element, MobileTouchConfig const& config, ImVec2 size) const {
     if (!element.enabled || element.kind == MobileTouchElementKind::PerformanceCounter)
       return false;
-    ImVec2 display = ImGui::GetIO().DisplaySize;
-    float radius = TouchInput::controlRadius(std::min(display.x, display.y), config.size)
-        * std::clamp(element.size, 0.45f, 2.4f);
-    if (element.kind == MobileTouchElementKind::Button) radius *= 0.85f;
-    float rx = radius / std::max(1.0f, size.x), ry = radius / std::max(1.0f, size.y);
-    float x = element.position[0], y = element.position[1];
-    return TouchInput::overlaps(x,y,rx,ry,0,.0f,.22f,.15f)
-        || TouchInput::overlaps(x,y,rx,ry,.24f,0,.78f,.14f)
-        || TouchInput::overlaps(x,y,rx,ry,0,.70f,.32f,1);
+    if(element.panel) return false;
+    float density=m_displayScale*ImGui::GetIO().DisplaySize.x/std::max(1u,m_windowSize[0]);
+    TouchLayout::Metrics metrics{size.x,size.y,density,config.size};
+    auto c=touchElementCircle(element,config,metrics);
+    TouchLayout::Hud guides; guides.add({0,0,1,.16f}); guides.add({.93f,0,1,.32f});
+    return TouchLayout::blocked(c,metrics,guides);
   }
 
   void renderTouchLayouts(LauncherState& state) {
     String presetLabels[] = {
-      launcherText("touchLayout.default", "Default"), launcherText("touchLayout.compact", "Compact"),
-      launcherText("touchLayout.large", "Large"), launcherText("touchLayout.left", "Left-handed"),
-      launcherText("touchLayout.comfortable", "Comfortable (recommended)")};
-    if (ImGui::BeginCombo(launcherText("touchLayout.preset", "Layout preset").utf8Ptr(), presetLabels[state.touchPreset].utf8Ptr())) {
-      for (int i=0; i<5; ++i)
-        if (ImGui::Selectable(presetLabels[i].utf8Ptr(), i == state.touchPreset)) state.touchPreset = i;
+      launcherText("touchRedesign.standard", "Standard"), launcherText("touchRedesign.minimal", "Minimal"),
+      launcherText("touchRedesign.building", "Building"), launcherText("touchRedesign.gamepad", "Gamepad Touch")};
+    if (ImGui::BeginCombo(launcherText("touchLayout.preset", "Layout preset").utf8Ptr(),presetLabels[state.touchPreset].utf8Ptr())) {
+      for(int i=0;i<4;++i) if(ImGui::Selectable(presetLabels[i].utf8Ptr(),i==state.touchPreset)) state.touchPreset=i;
       ImGui::EndCombo();
     }
-    ImGui::TextWrapped("%s", launcherText("touchLayout.comfortableHint", "Comfortable moves aim and main actions closer to your right thumb and keeps shortcuts below the top HUD. Apply, preview, then Save; your saved layout is not moved automatically.").utf8Ptr());
-    if (ImGui::Button(launcherText("touchLayout.apply", "Apply positions and sizes").utf8Ptr())) {
-      m_previousTouchLayout = JsonObject{{"elements", jsonFromTouchElements(state.touchElements)}};
-      auto defaults = defaultTouchElements();
-      for (auto& element : defaults) {
-        TouchInput::Point point{element.position[0], element.position[1]};
-        if (state.touchPreset == 4)
-          TouchInput::comfortablePreset(element.id.utf8(), point, element.size);
-        else
-          TouchInput::preset(point, element.size, state.touchPreset);
-        element.position = {point[0], point[1]};
-      }
-      TouchInput::mergeLayout(state.touchElements, defaults, [](auto& old, auto const& value) {
-        old.position = value.position; old.size = value.size;
-      });
-      state.touchPreviewOpen = true;
+    ImGui::TextWrapped("%s",launcherText("touchRedesign.help", "Apply a visual layout, then Save. Your bindings and custom labels are kept. More cycles shortcut pages; using a shortcut or waiting 3 seconds closes it. HUD guides are estimates; the game uses live HUD bounds.").utf8Ptr());
+    if(ImGui::Button(launcherText("touchRedesign.apply", "Apply new layout").utf8Ptr())) {
+      m_previousTouchLayout=JsonObject{{"elements",jsonFromTouchElements(state.touchElements)}};
+      applyTouchLayout(state.touchElements,state.touchPreset);
+      state.activeTouchLayout.clear();
+      state.touchPreviewOpen=true;
     }
     ImGui::TextWrapped("%s", launcherText("touchLayout.keepCustom", "Presets keep your actions, enabled controls and custom elements. Preview guides mark health, hotbar and chat; placement depends on your interface scale.").utf8Ptr());
     if (ImGui::Button(launcherText("touchLayout.restore", "Restore built-in controls...").utf8Ptr()))
@@ -3177,6 +3127,7 @@ private:
       ImGui::TextWrapped("%s", launcherText("touchLayout.confirmRestore", "Restore built-in positions, actions and labels? Custom elements are kept.").utf8Ptr());
       if (ImGui::Button(launcherText("common.restore", "Restore").utf8Ptr())) {
         TouchInput::mergeLayout(state.touchElements, defaultTouchElements(), [](auto& old, auto const& value) { old=value; });
+        state.activeTouchLayout.clear();
         state.touchLabelBufferElementId.clear(); state.touchPreviewOpen=true;
         ImGui::CloseCurrentPopup();
       }
@@ -3187,9 +3138,12 @@ private:
     ImGui::InputText(launcherText("touchLayout.name", "Layout name").utf8Ptr(), state.touchProfileName, sizeof(state.touchProfileName));
     auto saveProfile = [&] {
       String name = String(state.touchProfileName).trim();
-      Json profile = JsonObject{{"name",name},{"elements",jsonFromTouchElements(state.touchElements)}};
+      String orientation=m_windowSize[0]>=m_windowSize[1] ? "landscape" : "portrait";
+      float aspect=(float)m_windowSize[0]/std::max(1u,m_windowSize[1]);
+      Json profile = JsonObject{{"name",name},{"orientation",orientation},{"aspect",aspect},{"elements",jsonFromTouchElements(state.touchElements)}};
+      state.activeTouchLayout=name;
       for (auto& old : state.touchLayoutProfiles) {
-        if (old.getString("name", "") == name) { old=profile; return; }
+        if (old.getString("name", "") == name && old.getString("orientation",orientation)==orientation && std::abs(old.getFloat("aspect",aspect)-aspect)<.05f) { old=profile; return; }
       }
       state.touchLayoutProfiles.append(profile);
     };
@@ -3197,7 +3151,7 @@ private:
     if (ImGui::Button(launcherText("touchLayout.saveProfile", "Save named layout").utf8Ptr())) {
       bool exists=false;
       for (auto const& profile : state.touchLayoutProfiles)
-        exists |= profile.getString("name", "") == String(state.touchProfileName).trim();
+        exists |= profile.getString("name", "") == String(state.touchProfileName).trim() && profile.getString("orientation",m_windowSize[0]>=m_windowSize[1] ? "landscape" : "portrait")==String(m_windowSize[0]>=m_windowSize[1] ? "landscape" : "portrait");
       if (exists) ImGui::OpenPopup("ReplaceTouchLayout");
       else saveProfile();
     }
@@ -3212,9 +3166,11 @@ private:
     if (ImGui::BeginCombo(launcherText("touchLayout.load", "Load named layout").utf8Ptr(), launcherText("touchLayout.choose", "Choose...").utf8Ptr())) {
       for (auto const& profile : state.touchLayoutProfiles) {
         String name=profile.getString("name", "");
-        if (ImGui::Selectable(name.utf8Ptr())) {
+        String displayName=strf("{} ({})",name,profile.getString("orientation","*"));
+        if (ImGui::Selectable(displayName.utf8Ptr())) {
           // Salva o estado atual antes da troca, incluindo controles ainda não salvos.
           Json snapshot=JsonObject{{"name",launcherText("touchLayout.previous", "Previous layout")},{"elements",jsonFromTouchElements(state.touchElements)}};
+          state.activeTouchLayout=name;
           auto loaded=touchElementsFromConfig(JsonObject{{"touch",JsonObject{{"elements",profile.getArray("elements",{})}}}});
           TouchInput::mergeLayout(state.touchElements, loaded, [](auto& old, auto const& value) {old=value;});
           std::snprintf(state.touchProfileName,sizeof(state.touchProfileName),"%s",name.utf8Ptr());
@@ -3227,6 +3183,7 @@ private:
     if (!m_previousTouchLayout.isNull() && ImGui::Button(launcherText("touchLayout.undo", "Undo layout switch").utf8Ptr())) {
       auto previous=touchElementsFromConfig(JsonObject{{"touch",JsonObject{{"elements",m_previousTouchLayout.getArray("elements")}}}});
       state.touchElements = std::move(previous);
+      state.activeTouchLayout.clear();
       state.touchLabelBufferElementId.clear(); state.touchPreviewOpen=true;
     }
     String scaleLabels[] = {launcherText("touchLayout.keepScale", "Keep current"),launcherText("touchLayout.autoScale", "Automatic"),
@@ -3315,10 +3272,11 @@ private:
     String attackLabels[] = {
       launcherText("touchManager.aimOnly", "Aim only"),
       launcherText("touchManager.releaseAttack", "Release to attack"),
-      launcherText("touchManager.continuousAttack", "Attack outside deadzone")};
+      launcherText("touchManager.continuousAttack", "Attack outside deadzone"),
+      launcherText("touchRedesign.holdAttack", "Use while touching aim joystick")};
     int attackMode = (int)state.touchConfig.aimAttackMode;
     if (ImGui::BeginCombo(launcherText("touchManager.aimAttack", "Aim joystick action").utf8Ptr(), attackLabels[attackMode].utf8Ptr())) {
-      for (int i = 0; i < 3; ++i)
+      for (int i = 0; i < 4; ++i)
         if (ImGui::Selectable(attackLabels[i].utf8Ptr(), attackMode == i))
           state.touchConfig.aimAttackMode = (TouchInput::AttackMode)i;
       ImGui::EndCombo();
@@ -3337,7 +3295,10 @@ private:
       ImGui::TextDisabled("%s", launcherText("touchManager.noGyroFound", "No gyro found").utf8Ptr());
     }
     ImGui::SliderFloat(launcherText("touchManager.overlayOpacity", "Overlay opacity").utf8Ptr(), &state.touchConfig.opacity, 0.0f, 1.0f);
-    ImGui::SliderFloat(launcherText("touchManager.globalControlSize", "Global control size").utf8Ptr(), &state.touchConfig.size, 0.6f, 1.8f);
+    ImGui::SliderFloat(launcherText("touchManager.globalControlSize", "Global control size").utf8Ptr(), &state.touchConfig.size, 0.5f, 1.5f);
+    ImGui::Checkbox(launcherText("touchRedesign.floating", "Floating movement joystick").utf8Ptr(),&state.touchConfig.floatingMovement);
+    ImGui::Checkbox(launcherText("touchRedesign.panelLeft", "More panel on the left").utf8Ptr(),&state.touchConfig.panelLeft);
+    ImGui::Checkbox(launcherText("touchRedesign.grid", "Snap editor to 8 dp grid").utf8Ptr(),&state.touchConfig.snapToGrid);
     ImGui::SliderFloat(launcherText("touchManager.outlineThickness", "Button outline thickness").utf8Ptr(), &state.touchConfig.outlineThickness, 1.0f, 5.0f);
     ImGui::SliderFloat(launcherText("touchManager.joystickDeadzone", "Joystick deadzone").utf8Ptr(), &state.touchConfig.deadzone, 0.0f, 0.6f);
     ImGui::BeginDisabled(!gyroAvailable);
@@ -3432,9 +3393,12 @@ private:
           }
           ImGui::SliderFloat(launcherText("touchManager.elementSize", "Size").utf8Ptr(), &element.size, 0.45f, 2.4f);
           ImGui::SliderFloat(launcherText("touchManager.elementOpacity", "Element opacity").utf8Ptr(), &element.opacity, 0.0f, 1.0f);
+          ImGui::Checkbox(launcherText("touchRedesign.inPanel", "Keep in More panel").utf8Ptr(),&element.panel);
+          if(element.diameterDp>0) ImGui::SliderFloat(launcherText("touchRedesign.diameter", "Diameter (dp)").utf8Ptr(),&element.diameterDp,44,192);
           float position[2] = {element.position[0], element.position[1]};
-          if (ImGui::SliderFloat2(launcherText("touchManager.position", "Position").utf8Ptr(), position, 0.03f, 0.97f))
-            element.position = {position[0], position[1]};
+          if (ImGui::SliderFloat2(launcherText("touchManager.position", "Position").utf8Ptr(), position, 0.03f, 0.97f)) {
+            element.position = {position[0], position[1]}; element.adaptive=false; element.panel=false; state.activeTouchLayout.clear();
+          }
           if (element.kind == MobileTouchElementKind::Button) {
             renderTouchActionCombo(state, launcherText("touchManager.interaction", "Interaction").utf8Ptr(), element.action, element.id + ":action");
             renderTouchPressModeCombo(element);
@@ -4270,7 +4234,16 @@ private:
     return launchPressed;
   }
 
-  void persistLauncherState(LauncherState const& state) {
+  void persistLauncherState(LauncherState& state) {
+    if(!state.activeTouchLayout.empty()) {
+      String orientation=m_windowSize[0]>=m_windowSize[1] ? "landscape" : "portrait";
+      float aspect=(float)m_windowSize[0]/std::max(1u,m_windowSize[1]);
+      for(auto& profile : state.touchLayoutProfiles) {
+        if(profile.getString("name","")==state.activeTouchLayout && profile.getString("orientation",orientation)==orientation
+            && std::abs(profile.getFloat("aspect",aspect)-aspect)<.05f)
+          profile=jsonMerge(profile,JsonObject{{"elements",jsonFromTouchElements(state.touchElements)}});
+      }
+    }
     Json config = JsonObject{
       {"packedPakPath", state.packedPakPath},
       {"launcherUi", JsonObject{
@@ -4300,9 +4273,11 @@ private:
         {"aimAttackMode", (int)state.touchConfig.aimAttackMode},
         {"aimDeadzone", state.touchConfig.aimDeadzone},
         {"aimCurve", state.touchConfig.aimCurve},
+        {"floatingMovement",state.touchConfig.floatingMovement}, {"panelLeft",state.touchConfig.panelLeft}, {"snapToGrid",state.touchConfig.snapToGrid},
         {"gyroSensitivity", state.touchConfig.gyroSensitivity},
         {"gyroInvertX", state.touchConfig.gyroInvertX},
         {"gyroInvertY", state.touchConfig.gyroInvertY},
+        {"activeLayout",state.activeTouchLayout},
         {"layoutProfiles", state.touchLayoutProfiles},
         {"elements", jsonFromTouchElements(state.touchElements)}
       }},
@@ -4422,6 +4397,7 @@ private:
         {"aimAttackMode", (int)state.touchConfig.aimAttackMode},
             {"aimDeadzone", state.touchConfig.aimDeadzone},
             {"aimCurve", state.touchConfig.aimCurve},
+        {"floatingMovement",state.touchConfig.floatingMovement}, {"panelLeft",state.touchConfig.panelLeft}, {"snapToGrid",state.touchConfig.snapToGrid},
             {"gyroSensitivity", state.touchConfig.gyroSensitivity},
             {"gyroInvertX", state.touchConfig.gyroInvertX},
             {"gyroInvertY", state.touchConfig.gyroInvertY},
@@ -4553,7 +4529,7 @@ private:
       setMobileStartupStatus(launcherText("startup.initTouch", "Initializing touch controls..."));
       renderStartupScreen(getMobileStartupStatus());
       androidLogInfo("startApplication: create touch adapter");
-      m_touchAdapter = make_unique<MobileTouchInputAdapter>(&m_windowSize, &m_renderCanvasSize, &m_displayScale, &m_safeArea);
+      m_touchAdapter = make_unique<MobileTouchInputAdapter>(&m_windowSize, &m_renderCanvasSize, &m_displayScale, &m_touchSafeArea, &m_safeArea);
       m_touchAdapter->setGyroAvailable(platformGyroAvailable());
       m_gamepadAdapter = make_unique<MobileGamepadInputAdapter>(&m_renderCanvasSize);
 
@@ -4590,7 +4566,8 @@ private:
         touch.gyroInvertY = cfg.queryBool("touch.gyroInvertY", false);
         loadTouchAimOptions(touch, cfg);
         m_touchAdapter->setConfig(touch);
-        m_touchAdapter->setElements(touchElementsFromConfig(cfg));
+        m_touchLayoutConfig=cfg;
+        m_touchAdapter->setElements(touchElementsForScreen(cfg,gameCanvasSize()));
         syncGyroSensor(touch.gyroEnabled);
         MobileGamepadConfig gamepadConfig = gamepadConfigFromConfig(cfg);
         // touch is the single source of truth for this setting -- see
@@ -4729,6 +4706,7 @@ private:
         m_application->processInput(event);
         // Uma janela pode abrir no meio do lote SDL. Liberações têm precedência
         // sobre os próximos ataques já enfileirados pelo mesmo toque.
+        m_touchAdapter->setHud(m_application->touchOverlayHud());
         m_touchAdapter->setContext(m_application->touchInputMode());
         m_contextReleaseEvents.clear();
         m_touchAdapter->appendGeneratedEvents(m_contextReleaseEvents);
@@ -4805,6 +4783,7 @@ private:
 #endif
 
       if (overlayEnabled) {
+        m_touchAdapter->setHud(m_application->touchOverlayHud());
         m_touchAdapter->renderShortcutIcons(*m_application);
         m_touchAdapter->drawOverlay(m_renderRate, m_application && m_application->touchDirectionalMining());
         ImGui::Render();
@@ -5128,6 +5107,7 @@ private:
       events.append(KeyUpEvent{Key::Escape});
     }
 #endif
+    if(m_application) m_touchAdapter->setHud(m_application->touchOverlayHud());
     m_touchAdapter->setContext(m_application ? m_application->touchInputMode() : 2);
     m_touchAdapter->beginFrame();
     if (m_gamepadAdapter)
@@ -5612,6 +5592,10 @@ private:
 #endif
       // Fullscreen rendering: ignore the insets entirely -- the viewport
       // covers the whole panel and the cutout overlaps content.
+      if (!(newSA==m_touchSafeArea)) {
+        if(m_touchAdapter) m_touchAdapter->cancelAll();
+        m_touchSafeArea=newSA;
+      }
       if (m_fullscreenRender)
         newSA = SafeAreaInsets{};
       if (!(newSA == m_safeArea)) {
@@ -5646,6 +5630,7 @@ private:
       if (notifyApplication && m_application)
         m_application->windowChanged(WindowMode::Normal, renderCanvas);
 
+      if(m_touchAdapter && !m_touchLayoutConfig.isNull()) m_touchAdapter->setElements(touchElementsForScreen(m_touchLayoutConfig,physicalCanvas));
       refreshImGuiScale();
     } else if (ImGui::GetCurrentContext()) {
       // Keep launcher/UI touch sizing aligned when only display scale changes.
@@ -5766,6 +5751,8 @@ private:
   // pixel-space render canvas. 1.0 on non-HiDPI displays.
   Vec2F m_windowPointToPixel = {1.0f, 1.0f};
   SafeAreaInsets m_safeArea;
+  SafeAreaInsets m_touchSafeArea;
+  Json m_touchLayoutConfig;
   Json m_previousTouchLayout;
   List<InputEvent> m_frameInputEvents, m_pendingTouchEvents, m_contextReleaseEvents;
   bool m_vsync = true;

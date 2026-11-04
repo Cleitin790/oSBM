@@ -2616,7 +2616,7 @@ public:
     }
     for (auto const& pair : m_mouseHoldCounts.pairs()) {
       if (pair.second > 0)
-        emitEvent(MouseButtonUpEvent{pair.first, m_cursorPosition});
+        emitEvent(MouseButtonUpEvent{pair.first, m_cursorPosition, InputSource::Gamepad});
     }
 
     m_heldButtons.clear();
@@ -2913,14 +2913,14 @@ private:
       if (count == 0)
         updateStickAim();
       if (count == 0)
-        emitEvent(MouseButtonDownEvent{button, m_cursorPosition});
+        emitEvent(MouseButtonDownEvent{button, m_cursorPosition, InputSource::Gamepad});
     } else if (!desired && m_mouseActionOwners.contains(token)) {
       m_mouseActionOwners.remove(token);
       unsigned count = m_mouseHoldCounts.value(button, 0);
       if (count <= 1) {
         m_mouseHoldCounts.remove(button);
         updateStickAim();
-        emitEvent(MouseButtonUpEvent{button, m_cursorPosition});
+        emitEvent(MouseButtonUpEvent{button, m_cursorPosition, InputSource::Gamepad});
       } else {
         m_mouseHoldCounts.set(button, count - 1);
       }

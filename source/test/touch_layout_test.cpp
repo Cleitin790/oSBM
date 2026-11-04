@@ -61,6 +61,42 @@ int main(int argc, char**) {
       auto snapped=snap(117*m.dp(),m.dp()); check(std::abs(snapped-120*m.dp())<.01f);
     }
   check(allocations==baseline);
+  // Dense saved layouts collapse without changing their stored enabled flags.
+  for(bool grouped : {false,true}) for(bool manual : {false,true}) {
+    for(auto id : {"tech","targetLock","targetNext","quick1","quick2","quick3","miningMode","singleBlock","swapAimHand","custom1"})
+      check(inPanel(id,grouped,true,false,true,manual));
+    check(!inPanel("more",grouped,true,true,true,manual));
+    check(!inPanel("joystick",false,false,false,true,manual));
+    check(!inPanel("aimJoystick",false,false,false,true,manual));
+    check(inPanel("leftHand",true,true,false,true,manual)==!manual);
+    check(inPanel("custom1",grouped,true,false,false,manual)==grouped);
+  }
+  for(auto id : {"jump","interact","pause"}) check(!inPanel(id,false,true,false,true,false));
+  for(float aspect : {16.f/9,20.f/9}) for(float scale : {.5f,1.f,1.5f}) for(bool manual : {false,true}) {
+    Metrics m{393*aspect,393,1,scale}; Hud hud; hud.add({0,0,1,.16f}); hud.add({.93f,0,1,.32f});
+    std::array<Circle,7> compact{};
+    const char* primary[]={"joystick","aimJoystick","jump","interact","pause","more","leftHand"};
+    size_t count=manual ? 7 : 6;
+    for(size_t i=0;i<count;++i) {
+      auto c=avoid(placement(primary[i],m,i<2?128:i==2?56:48),m,hud,compact.data(),i);
+      check(c.visible); check(!blocked(c,m,hud));
+      for(size_t j=0;j<i;++j) check(separated(c,compact[j],8));
+      compact[i]=c;
+    }
+  }
+  // Sidebar buttons stay wholly to the right and below the native top edge,
+  // including at large GUI scales. No widget footprint extends over hotbar.
+  for(float width : {160.f,180.f,220.f,300.f}) for(float height : {120.f,180.f,240.f,320.f}) {
+    InventoryToolsLayout tools{width,height};
+    for(size_t i=0;i<8;++i) {
+      auto rect=tools.row(i);
+      check(rect.left>width && rect.right<tools.width());
+      check(rect.top>=0 && rect.bottom<=height-8);
+      check(rect.bottom>rect.top && rect.right>rect.left);
+      if(i) check(rect.bottom<tools.row(i-1).top);
+      for(float scale : {1.35f,1.8f,2.4f,3.f}) check(rect.bottom*scale<height*scale);
+    }
+  }
   char label[32];
   auto measure=[](char const* text) { return (float)std::strlen(text); };
   fitLabel(label,sizeof(label),"A very long custom shortcut",10,measure);

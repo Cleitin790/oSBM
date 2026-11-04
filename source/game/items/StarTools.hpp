@@ -1,6 +1,7 @@
 #pragma once
 
 #include "StarItem.hpp"
+#include "StarGameTypes.hpp"
 #include "StarBeamItem.hpp"
 #include "StarSwingableItem.hpp"
 #include "StarDurabilityItem.hpp"
@@ -144,6 +145,10 @@ class BeamMiningTool : public Item, public FireableItem, public PreviewTileTool,
 public:
   BeamMiningTool(Json const& config, String const& directory, Json const& parameters = JsonObject());
 
+  // Runtime input assistance only; never serialized into item descriptors.
+  void setDirectionalMining(bool enabled, bool hasTarget, TileLayer layer = TileLayer::Foreground);
+  List<Vec2I> miningTiles(bool shifting, TileLayer layer) const;
+
   ItemPtr clone() const override;
 
   List<Drawable> drawables() const override;
@@ -161,6 +166,9 @@ public:
   List<PersistentStatusEffect> statusEffects() const override;
 
 private:
+  bool m_directionalMining = false;
+  bool m_directionalMiningHasTarget = false;
+  TileLayer m_directionalMiningLayer = TileLayer::Foreground;
   float m_blockRadius;
   float m_altBlockRadius;
 

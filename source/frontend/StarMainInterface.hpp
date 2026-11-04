@@ -112,6 +112,7 @@ public:
   void renderCursorOverlay();
 
   Vec2F cursorWorldPosition() const;
+  Vec2F rawCursorWorldPosition() const;
 
   bool isDebugDisplayed();
 
@@ -205,6 +206,9 @@ private:
   bool lockTargetValid(EntityId id, Vec2F& position) const;
   void updateTargetLock();
   void acquireTargetLock(bool next);
+  bool m_directionalMining = false;
+  bool m_miningInput = false;
+  Maybe<Vec2F> m_miningTarget;
   bool m_lockOnEnabled = false, m_lockPreferBoss = true;
   float m_lockRange = 40;
   EntityId m_lockTarget = NullEntityId;

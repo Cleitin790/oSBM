@@ -78,6 +78,7 @@ String actionName(MobileTouchAction const& action) {
       return launcherTextStatic("touchAction.scrollUp", "Scroll Up");
     case MobileTouchActionKind::MouseWheelDown:
       return launcherTextStatic("touchAction.scrollDown", "Scroll Down");
+    case MobileTouchActionKind::MiningModeToggle: return launcherTextStatic("touchAction.miningMode", "Free / directional mining");
     case MobileTouchActionKind::TargetLockToggle: return launcherTextStatic("touchAction.targetLock", "Lock / unlock target");
     case MobileTouchActionKind::TargetLockNext: return launcherTextStatic("touchAction.targetNext", "Next target");
     case MobileTouchActionKind::TouchHandSwap:
@@ -125,6 +126,12 @@ MobileTouchAction mouseAction(MouseButton button) {
 MobileTouchAction wheelAction(bool up) {
   MobileTouchAction action;
   action.kind = up ? MobileTouchActionKind::MouseWheelUp : MobileTouchActionKind::MouseWheelDown;
+  return action;
+}
+
+MobileTouchAction miningModeAction() {
+  MobileTouchAction action;
+  action.kind = MobileTouchActionKind::MiningModeToggle;
   return action;
 }
 
@@ -248,6 +255,7 @@ std::vector<MobileTouchElement> defaultTouchElements() {
     {"shift", launcherTextStatic("touchElement.shift", "Shift"), MobileTouchElementKind::Button, false, {0.66f, 0.88f}, 0.82f, keyAction(Key::LShift), {}, {}, {}, {}},
     {"targetLock", launcherTextStatic("touchElement.targetLock", "Lock"), MobileTouchElementKind::Button, true, {0.54f, 0.45f}, 0.72f, targetLockAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
     {"targetNext", launcherTextStatic("touchElement.targetNext", "Next"), MobileTouchElementKind::Button, true, {0.62f, 0.45f}, 0.72f, targetLockAction(true), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
+    {"miningMode", launcherTextStatic("touchElement.miningMode", "Mine"), MobileTouchElementKind::Button, true, {0.42f, 0.32f}, 0.72f, miningModeAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
     {"singleBlock", launcherTextStatic("touchElement.singleBlock", "1 block"), MobileTouchElementKind::Button, true, {0.76f, 0.30f}, 0.72f, keyAction(Key::LShift), {}, {}, {}, {}, MobileTouchPressMode::Toggle},
     {"swapAimHand", launcherTextStatic("touchElement.swapAimHand", "L/R"), MobileTouchElementKind::Button, true, {0.80f, 0.46f}, 0.72f, touchHandSwapAction(), {}, {}, {}, {}, MobileTouchPressMode::SinglePress},
     {"ctrl", launcherTextStatic("touchElement.ctrl", "Ctrl"), MobileTouchElementKind::Button, false, {0.58f, 0.88f}, 0.82f, keyAction(Key::LCtrl), {}, {}, {}, {}},
@@ -360,6 +368,7 @@ Json jsonFromTouchAction(MobileTouchAction const& action) {
     return JsonObject{{"type", "wheel"}, {"direction", "up"}};
   if (action.kind == MobileTouchActionKind::MouseWheelDown)
     return JsonObject{{"type", "wheel"}, {"direction", "down"}};
+  if (action.kind == MobileTouchActionKind::MiningModeToggle) return JsonObject{{"type", "miningMode"}};
   if (action.kind == MobileTouchActionKind::TargetLockToggle) return JsonObject{{"type", "targetLock"}};
   if (action.kind == MobileTouchActionKind::TargetLockNext) return JsonObject{{"type", "targetNext"}};
   if (action.kind == MobileTouchActionKind::TouchHandSwap)
@@ -389,6 +398,7 @@ MobileTouchAction touchActionFromJson(Json const& json, MobileTouchAction def) {
     return mouseAction(MouseButtonNames.valueLeft(json.getString("button", MouseButtonNames.getRight(def.mouseButton)), def.mouseButton));
   if (type.equals("wheel", String::CaseInsensitive))
     return wheelAction(!json.getString("direction", "up").equals("down", String::CaseInsensitive));
+  if (type.equals("miningMode", String::CaseInsensitive)) return miningModeAction();
   if (type.equals("targetLock", String::CaseInsensitive)) return targetLockAction();
   if (type.equals("targetNext", String::CaseInsensitive)) return targetLockAction(true);
   if (type.equals("touchHandSwap", String::CaseInsensitive))
@@ -1245,7 +1255,7 @@ private:
         state.role = FingerRole::ActionButton;
         state.action = bestElement->action;
         state.pressMode = bestElement->pressMode;
-        if (bestElement->action.kind == MobileTouchActionKind::TargetLockToggle || bestElement->action.kind == MobileTouchActionKind::TargetLockNext)
+        if (bestElement->action.kind == MobileTouchActionKind::MiningModeToggle || bestElement->action.kind == MobileTouchActionKind::TargetLockToggle || bestElement->action.kind == MobileTouchActionKind::TargetLockNext)
           state.pressMode = MobileTouchPressMode::SinglePress;
         if (isWheelAction(bestElement->action)) {
           // Hold to open the radial wheel, drag toward an option, release to
@@ -1806,6 +1816,10 @@ private:
 
   void pressActionButton(MobileTouchElement const& element) {
     m_heldElements.add(element.id);
+    if (element.action.kind == MobileTouchActionKind::MiningModeToggle) {
+      emitEvent(MiningModeEvent{});
+      return;
+    }
     if (element.action.kind == MobileTouchActionKind::TargetLockToggle || element.action.kind == MobileTouchActionKind::TargetLockNext) {
       emitEvent(TargetLockEvent{element.action.kind == MobileTouchActionKind::TargetLockNext ? TargetLockCommand::Next : TargetLockCommand::Toggle});
       return;
@@ -1982,7 +1996,9 @@ private:
   }
 
   void setAction(MobileTouchAction const& action, String const& owner, bool desired) {
-    if (action.kind == MobileTouchActionKind::TargetLockToggle || action.kind == MobileTouchActionKind::TargetLockNext) {
+    if (action.kind == MobileTouchActionKind::MiningModeToggle) {
+      if (desired) emitEvent(MiningModeEvent{});
+    } else if (action.kind == MobileTouchActionKind::TargetLockToggle || action.kind == MobileTouchActionKind::TargetLockNext) {
       if (desired) emitEvent(TargetLockEvent{action.kind == MobileTouchActionKind::TargetLockNext ? TargetLockCommand::Next : TargetLockCommand::Toggle});
     } else if (action.kind == MobileTouchActionKind::Key) {
       setKeyOwner(owner, action.key, desired);
@@ -2696,7 +2712,7 @@ private:
     ActiveButton active{binding->action, binding->pressMode};
     m_activeButtons[owner] = active;
 
-    if (binding->action.kind == MobileTouchActionKind::TargetLockToggle || binding->action.kind == MobileTouchActionKind::TargetLockNext) {
+    if (binding->action.kind == MobileTouchActionKind::MiningModeToggle || binding->action.kind == MobileTouchActionKind::TargetLockToggle || binding->action.kind == MobileTouchActionKind::TargetLockNext) {
       m_activeButtons[owner].pressMode = MobileTouchPressMode::SinglePress;
       startPulsedAction(binding->action, owner);
       return;
@@ -2912,7 +2928,9 @@ private:
   }
 
   void setAction(MobileTouchAction const& action, String const& owner, bool desired) {
-    if (action.kind == MobileTouchActionKind::TargetLockToggle || action.kind == MobileTouchActionKind::TargetLockNext) {
+    if (action.kind == MobileTouchActionKind::MiningModeToggle) {
+      if (desired) emitEvent(MiningModeEvent{});
+    } else if (action.kind == MobileTouchActionKind::TargetLockToggle || action.kind == MobileTouchActionKind::TargetLockNext) {
       if (desired) emitEvent(TargetLockEvent{action.kind == MobileTouchActionKind::TargetLockNext ? TargetLockCommand::Next : TargetLockCommand::Toggle});
     } else if (action.kind == MobileTouchActionKind::Key) {
       setKeyOwner(owner, action.key, desired);

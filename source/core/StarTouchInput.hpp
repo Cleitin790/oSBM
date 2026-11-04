@@ -98,6 +98,7 @@ inline bool comfortablePreset(std::string_view id, Point& position, float& size)
     {"actionWheel", {.06f, .64f}, .95f},
     {"singleBlock", {.24f, .53f}, .80f},
     {"swapAimHand", {.24f, .70f}, .80f},
+    {"miningMode", {.34f, .32f}, .80f},
     {"targetLock", {.34f, .53f}, .80f},
     {"targetNext", {.44f, .53f}, .80f},
     {"dpad", {.14f, .80f}, 1.15f},

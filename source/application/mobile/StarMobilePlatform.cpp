@@ -1483,6 +1483,7 @@ private:
       {launcherText("touchActionChoice.actionBar5", "Action Bar 5"), keyAction(Key::Five)},
       {launcherText("touchActionChoice.scrollUp", "Scroll Up"), wheelAction(true)},
       {launcherText("touchActionChoice.scrollDown", "Scroll Down"), wheelAction(false)},
+      {launcherText("touchActionChoice.miningMode", "Free / directional mining"), miningModeAction()},
       {launcherText("touchActionChoice.targetLock", "Lock / unlock target"), targetLockAction()},
       {launcherText("touchActionChoice.targetNext", "Next target"), targetLockAction(true)},
       {launcherText("touchActionChoice.swapAimHand", "Swap aim hand"), touchHandSwapAction()},

@@ -46,7 +46,8 @@ enum class MobileTouchActionKind {
   ActionWheel,
   InventoryWheel,
   UiNavigation,
-  None
+  None,
+  MiningModeToggle
 };
 
 struct MobileTouchAction {
@@ -185,6 +186,7 @@ MobileTouchAction mouseAction(MouseButton button);
 MobileTouchAction wheelAction(bool up);
 MobileTouchAction gyroToggleAction();
 MobileTouchAction touchHandSwapAction();
+MobileTouchAction miningModeAction();
 MobileTouchAction targetLockAction(bool next = false);
 void loadTouchAimOptions(MobileTouchConfig& config, Json const& json);
 MobileTouchAction gamepadAimModeToggleAction();

@@ -107,3 +107,7 @@ ADD_TEST (NAME game_tests WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} CO
 
 SET_TESTS_PROPERTIES(core_tests PROPERTIES
                      LABELS "NoAssets")
+
+ADD_EXECUTABLE (directional_mining_tests directional_mining_test.cpp)
+ADD_TEST (NAME directional_mining_tests COMMAND directional_mining_tests)
+SET_TESTS_PROPERTIES(directional_mining_tests PROPERTIES LABELS "NoAssets")

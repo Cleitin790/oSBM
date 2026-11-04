@@ -361,6 +361,12 @@ void BeamMiningTool::setEnd(EndType) {
 }
 
 List<PreviewTile> BeamMiningTool::previewTiles(bool shifting) const {
+#ifdef STAR_PLATFORM_MOBILE
+  // The mobile/launcher HUD draws a thin outline using miningTiles instead.
+  // Avoid layering the original bright tile highlight under that outline.
+  (void)shifting;
+  return {};
+#else
   List<PreviewTile> result;
   auto ownerp = owner();
   auto worldp = world();
@@ -382,9 +388,35 @@ List<PreviewTile> BeamMiningTool::previewTiles(bool shifting) const {
     }
   }
   return result;
+#endif
+}
+
+void BeamMiningTool::setDirectionalMining(bool enabled, bool hasTarget, TileLayer layer) {
+  m_directionalMiningLayer = layer;
+  m_directionalMining = enabled;
+  m_directionalMiningHasTarget = hasTarget;
+}
+
+List<Vec2I> BeamMiningTool::miningTiles(bool shifting, TileLayer layer) const {
+  auto ownerp = owner();
+  auto worldp = world();
+  if (!ownerp || !worldp) return {};
+  if (m_directionalMining && (layer != m_directionalMiningLayer || !m_directionalMiningHasTarget
+      || worldp->isTileProtected(Vec2I::floor(ownerp->aimPosition())))) return {};
+  List<Vec2I> result;
+  int radius = shifting ? m_altBlockRadius : m_blockRadius;
+  for (auto tile : tileAreaBrush(radius, ownerp->aimPosition(), true)) {
+    if (m_directionalMining ? worldp->material(tile, layer) == EmptyMaterialId
+        : !worldp->tileIsOccupied(tile, layer, true)) continue;
+    if (m_directionalMining && (!ownerp->inToolRange(Vec2F(tile) + Vec2F::filled(.5f))
+        || worldp->isTileProtected(tile))) continue;
+    result.append(tile);
+  }
+  return result;
 }
 
 void BeamMiningTool::init(ToolUserEntity* owner, ToolHand hand) {
+  setDirectionalMining(false, false);
   FireableItem::init(owner, hand);
   BeamItem::init(owner, hand);
 }
@@ -405,7 +437,7 @@ List<Drawable> BeamMiningTool::nonRotatedDrawables() const {
 }
 
 void BeamMiningTool::fire(FireMode mode, bool shifting, bool edgeTriggered) {
-  if (!ready())
+  if (!ready() || (m_directionalMining && !m_directionalMiningHasTarget))
     return;
 
   auto materialDatabase = Root::singleton().materialDatabase();
@@ -414,13 +446,15 @@ void BeamMiningTool::fire(FireMode mode, bool shifting, bool edgeTriggered) {
   auto ownerp = owner();
   if (ownerp && worldp) {
     bool used = false;
-    int radius = !shifting ? m_blockRadius : m_altBlockRadius;
     String blockSound;
     List<Vec2I> brushArea;
 
     auto layer = (mode == FireMode::Primary ? TileLayer::Foreground : TileLayer::Background);
     if (ownerp->isAdmin() || ownerp->inToolRange()) {
-      brushArea = tileAreaBrush(radius, ownerp->aimPosition(), true);
+      int radius = shifting ? m_altBlockRadius : m_blockRadius;
+      brushArea = m_directionalMining ? miningTiles(shifting, layer)
+          : tileAreaBrush(radius, ownerp->aimPosition(), true);
+      if (m_directionalMining && brushArea.empty()) return;
       auto aimPosition = Vec2I(ownerp->aimPosition());
 
       for (auto pos : brushArea) {
@@ -444,7 +478,7 @@ void BeamMiningTool::fire(FireMode mode, bool shifting, bool edgeTriggered) {
         blockSound = Root::singleton().assets()->json("/client.config:defaultDingSound").toString();
       }
 
-      if (!used && m_canCollectLiquid && layer == TileLayer::Foreground && worldp->material(aimPosition, TileLayer::Foreground) == EmptyMaterialId) {
+      if (!used && !m_directionalMining && m_canCollectLiquid && layer == TileLayer::Foreground && worldp->material(aimPosition, TileLayer::Foreground) == EmptyMaterialId) {
         auto targetLiquid = worldp->liquidLevel(aimPosition).liquid;
         List<Vec2I> drainTiles;
         float totalLiquid = 0;

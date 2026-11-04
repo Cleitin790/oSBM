@@ -2,6 +2,7 @@
 #include "StarGamepadInput.hpp"
 #ifdef STAR_PLATFORM_MOBILE
 #include "StarTargetLock.hpp"
+#include "StarDirectionalMining.hpp"
 #include "StarNpc.hpp"
 #include "StarDamageBarEntity.hpp"
 #endif
@@ -339,6 +340,10 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
   if (auto mouseMove = event.ptr<MouseMoveEvent>()) {
     m_cursorScreenIPos = Vec2I::round(m_cursorScreenPos = mouseMove->mousePosition);
     m_cursorVisible = mouseMove->cursorVisible;
+#ifdef STAR_PLATFORM_MOBILE
+    m_miningInput = mouseMove->source != InputSource::Mouse;
+    m_miningTarget.reset();
+#endif
     m_mobileDirectionalAimActive = false;
     m_gamepadAimOffset.reset();
     if (!mouseMove->cursorVisible)
@@ -359,7 +364,23 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
       }
     }
   }
+  if (auto down = event.ptr<MouseButtonDownEvent>(); down && down->source == InputSource::Mouse) {
+    m_miningInput = false;
+    m_miningTarget.reset();
+  }
+  if (event.is<MiningModeEvent>()) {
+    if (!windowsOpen() && !inputFocus()) {
+      m_directionalMining = !m_directionalMining;
+      m_miningTarget.reset();
+      queueMessage(m_directionalMining ? "Mining: directional" : "Mining: free");
+    }
+    return true;
+  }
   if (auto lock = event.ptr<TargetLockEvent>()) {
+    if (lock->command == TargetLockCommand::Cancel) {
+      m_miningInput = false;
+      m_miningTarget.reset();
+    }
     if (lock->command == TargetLockCommand::Cancel || (lock->command == TargetLockCommand::Toggle && m_lockTarget != NullEntityId))
       m_lockTarget = NullEntityId;
     else if (m_lockOnEnabled && !windowsOpen() && !inputFocus())
@@ -367,6 +388,8 @@ bool MainInterface::handleInputEvent(InputEvent const& event) {
     return true;
   }
   if (auto touch = event.ptr<TouchPointerEvent>()) {
+    m_miningInput = false;
+    m_miningTarget.reset();
     m_cursorScreenIPos = Vec2I::round(m_cursorScreenPos = touch->position);
     m_cursorVisible = true;
     m_gamepadAimOffset.reset();
@@ -659,6 +682,29 @@ void MainInterface::handleInteractAction(InteractAction interactAction) {
 
 void MainInterface::preUpdate(float) {
   auto player = m_client->mainPlayer();
+#ifdef STAR_PLATFORM_MOBILE
+  m_miningTarget.reset();
+  bool assisted = m_directionalMining && m_miningInput && player->inWorld()
+      && !m_client->paused() && !windowsOpen() && !inputFocus() && !m_actionWheelActive
+      && (!m_cinematicOverlay || m_cinematicOverlay->completed());
+  auto selected = player->handItem(m_targetPreviewAlt ? ToolHand::Alt : ToolHand::Primary);
+  if (!selected) selected = player->primaryHandItem();
+  auto mining = as<BeamMiningTool>(selected);
+  if (assisted && mining) {
+    auto world = m_client->worldClient();
+    auto origin = player->position();
+    auto delta = world->geometry().diff(rawCursorWorldPosition(), origin);
+    auto layer = m_targetPreviewAlt ? TileLayer::Background : TileLayer::Foreground;
+    auto hit = DirectionalMining::firstTile(origin[0], origin[1], delta[0], delta[1], player->toolRadius(),
+        [&](int x, int y) { return world->material({x, y}, layer) != EmptyMaterialId; });
+    if (hit.found) m_miningTarget = Vec2F(hit.x + .5f, hit.y + .5f);
+  }
+  for (auto hand : {ToolHand::Primary, ToolHand::Alt}) {
+    if (auto beam = as<BeamMiningTool>(player->handItem(hand)))
+      beam->setDirectionalMining(assisted, beam == mining && (bool)m_miningTarget,
+          m_targetPreviewAlt ? TileLayer::Background : TileLayer::Foreground);
+  }
+#endif
   if (!m_client->paused())
     player->aim(cursorWorldPosition());
 
@@ -1148,6 +1194,14 @@ void MainInterface::render() {
 }
 
 Vec2F MainInterface::cursorWorldPosition() const {
+#ifdef STAR_PLATFORM_MOBILE
+  if (m_directionalMining && m_miningInput && m_miningTarget && !windowsOpen() && !inputFocus())
+    return *m_miningTarget;
+#endif
+  return rawCursorWorldPosition();
+}
+
+Vec2F MainInterface::rawCursorWorldPosition() const {
 #ifdef STAR_PLATFORM_MOBILE
   if (m_lockTarget != NullEntityId) {
     return m_lockPosition;
@@ -1708,10 +1762,12 @@ void MainInterface::updateTargetPreview() {
 
   Vec2I target = Vec2I::floor(player->aimPosition());
   bool inRange = player->inToolRange(Vec2F(target) + Vec2F::filled(0.5f));
-  Vec4B good(65, 225, 110, 220), bad(245, 75, 70, 230);
+  Vec4B good(185, 218, 230, 140), bad(245, 110, 95, 185);
   bool anyValid = false, anyInvalid = false;
   List<Vec2I> tiles;
-  if (auto preview = as<PreviewTileTool>(item)) {
+  if (mining) {
+    tiles = mining->miningTiles(player->shifting(), m_targetPreviewAlt ? TileLayer::Background : TileLayer::Foreground);
+  } else if (auto preview = as<PreviewTileTool>(item)) {
     for (auto const& tile : preview->previewTiles(player->shifting())) {
       if (!tiles.contains(tile.position))
         tiles.append(tile.position);
@@ -1719,23 +1775,35 @@ void MainInterface::updateTargetPreview() {
         break;
     }
   }
-  if (tiles.empty())
+#ifdef STAR_PLATFORM_MOBILE
+  if (mining && m_miningTarget && m_client->worldClient()->isTileProtected(target))
+    tiles.append(target);
+#endif
+  if (tiles.empty() && !mining)
     tiles.append(target);
   for (auto const& tile : tiles) {
+    if (m_targetPreviewTiles.size() >= 1024) break;
     bool valid = inRange;
     if (material)
       valid = material->canPlaceAt(tile, m_targetPreviewAlt && material->twoHanded()
           ? TileLayer::Background : TileLayer::Foreground);
     else if (object)
       valid = inRange && object->canPlace(player->shifting());
+    else if (mining)
+      valid = player->inToolRange(Vec2F(tile) + Vec2F::filled(.5f))
+          && !m_client->worldClient()->isTileProtected(tile);
     anyValid |= valid;
     anyInvalid |= !valid;
     m_targetPreviewTiles.append({tile, valid ? good : bad});
   }
   if (!inRange)
     m_targetPreviewStatus = "Out of reach";
-  else if ((material || object) && anyInvalid)
+  else if (anyInvalid)
     m_targetPreviewStatus = anyValid ? "Partially blocked" : "Blocked";
+#ifdef STAR_PLATFORM_MOBILE
+  else if (mining && m_directionalMining && m_miningInput)
+    m_targetPreviewStatus = "Directional mining";
+#endif
 }
 
 void MainInterface::renderTargetPreview() {
@@ -1744,10 +1812,7 @@ void MainInterface::renderTargetPreview() {
   for (auto const& tile : m_targetPreviewTiles) {
     Vec2F position = camera.worldToScreen(Vec2F(tile.first));
     RectF rect = RectF::withSize(position, Vec2F::filled(pixels));
-    Vec4B fill = tile.second;
-    fill[3] = 35;
-    m_guiContext->drawQuad(rect, fill);
-    m_guiContext->drawPolyLines(PolyF(rect), tile.second, 1.5f);
+    m_guiContext->drawPolyLines(PolyF(rect), tile.second, 1.0f);
   }
   if (!m_targetPreviewStatus.empty() && !m_targetPreviewTiles.empty()) {
     Vec2F position = camera.worldToScreen(Vec2F(m_targetPreviewTiles.first().first)) + Vec2F(0, pixels + 4);
@@ -2298,6 +2363,9 @@ void MainInterface::acquireTargetLock(bool next) {
 #endif
 
 bool MainInterface::handleDirectionalAimEvent(DirectionalAimEvent const& event) {
+#ifdef STAR_PLATFORM_MOBILE
+  m_miningInput = true;
+#endif
   // D-pad focus owns open windows. A held/recentered aim stick must not
   // move the inventory cursor back into the world before a trigger click.
   if (event.useToolRange && m_paneManager.topPane({PaneLayer::Window, PaneLayer::ModalWindow})) {

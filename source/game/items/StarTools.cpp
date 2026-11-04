@@ -10,6 +10,27 @@
 
 namespace Star {
 
+void TileMiningTool::setDirectionalMining(bool enabled, bool hasTarget, TileLayer layer) {
+  m_directionalMiningLayer = layer;
+  m_directionalMining = enabled;
+  m_directionalMiningHasTarget = hasTarget;
+}
+
+List<Vec2I> TileMiningTool::miningArea(ToolUserEntity* ownerp, World* worldp, int radius, TileLayer layer) const {
+  if (!ownerp || !worldp) return {};
+  if (m_directionalMining && (layer != m_directionalMiningLayer || !m_directionalMiningHasTarget
+      || worldp->isTileProtected(Vec2I::floor(ownerp->aimPosition())))) return {};
+  List<Vec2I> result;
+  for (auto tile : tileAreaBrush(radius, ownerp->aimPosition(), true)) {
+    if (m_directionalMining ? worldp->material(tile, layer) == EmptyMaterialId
+        : !worldp->tileIsOccupied(tile, layer, true)) continue;
+    if (m_directionalMining && (!ownerp->inToolRange(Vec2F(tile) + Vec2F::filled(.5f))
+        || worldp->isTileProtected(tile))) continue;
+    result.append(tile);
+  }
+  return result;
+}
+
 MiningTool::MiningTool(Json const& config, String const& directory, Json const& parameters)
   : Item(config, directory, parameters), SwingableItem(config) {
   auto assets = Root::singleton().assets();
@@ -32,6 +53,16 @@ MiningTool::MiningTool(Json const& config, String const& directory, Json const& 
   m_blockVolume = assets->json("/sfx.config:miningBlockVolume").toFloat();
 }
 
+void MiningTool::init(ToolUserEntity* owner, ToolHand hand) {
+  setDirectionalMining(false, false);
+  SwingableItem::init(owner, hand);
+}
+
+List<Vec2I> MiningTool::miningTiles(bool shifting, TileLayer layer) const {
+  if (!initialized()) return {};
+  return miningArea(owner(), world(), shifting ? m_altBlockRadius : m_blockRadius, layer);
+}
+
 ItemPtr MiningTool::clone() const {
   return make_shared<MiningTool>(*this);
 }
@@ -50,7 +81,7 @@ Vec2F MiningTool::handPosition() const {
 }
 
 void MiningTool::fire(FireMode mode, bool shifting, bool edgeTriggered) {
-  if (!ready())
+  if (!ready() || (m_directionalMining && !m_directionalMiningHasTarget))
     return;
 
   auto materialDatabase = Root::singleton().materialDatabase();
@@ -63,7 +94,9 @@ void MiningTool::fire(FireMode mode, bool shifting, bool edgeTriggered) {
 
     auto layer = (mode == FireMode::Primary ? TileLayer::Foreground : TileLayer::Background);
     if (owner()->isAdmin() || owner()->inToolRange()) {
-      brushArea = tileAreaBrush(radius, owner()->aimPosition(), true);
+      brushArea = m_directionalMining ? miningTiles(shifting, layer)
+          : tileAreaBrush(radius, owner()->aimPosition(), true);
+      if (m_directionalMining && brushArea.empty()) return;
       for (auto pos : brushArea) {
         blockSound = materialDatabase->miningSound(world()->material(pos, layer), world()->mod(pos, layer));
         if (!blockSound.empty())
@@ -391,28 +424,9 @@ List<PreviewTile> BeamMiningTool::previewTiles(bool shifting) const {
 #endif
 }
 
-void BeamMiningTool::setDirectionalMining(bool enabled, bool hasTarget, TileLayer layer) {
-  m_directionalMiningLayer = layer;
-  m_directionalMining = enabled;
-  m_directionalMiningHasTarget = hasTarget;
-}
-
 List<Vec2I> BeamMiningTool::miningTiles(bool shifting, TileLayer layer) const {
-  auto ownerp = owner();
-  auto worldp = world();
-  if (!ownerp || !worldp) return {};
-  if (m_directionalMining && (layer != m_directionalMiningLayer || !m_directionalMiningHasTarget
-      || worldp->isTileProtected(Vec2I::floor(ownerp->aimPosition())))) return {};
-  List<Vec2I> result;
-  int radius = shifting ? m_altBlockRadius : m_blockRadius;
-  for (auto tile : tileAreaBrush(radius, ownerp->aimPosition(), true)) {
-    if (m_directionalMining ? worldp->material(tile, layer) == EmptyMaterialId
-        : !worldp->tileIsOccupied(tile, layer, true)) continue;
-    if (m_directionalMining && (!ownerp->inToolRange(Vec2F(tile) + Vec2F::filled(.5f))
-        || worldp->isTileProtected(tile))) continue;
-    result.append(tile);
-  }
-  return result;
+  if (!initialized()) return {};
+  return miningArea(owner(), world(), shifting ? m_altBlockRadius : m_blockRadius, layer);
 }
 
 void BeamMiningTool::init(ToolUserEntity* owner, ToolHand hand) {

@@ -14,10 +14,13 @@ fora, na camada ativa. N?o ? preciso manter o cursor sobre cada bloco. Ap?s a
 remo??o, a sele??o avan?a. O mesmo tra?ado permanece no mesmo primeiro bloco
 at? ele desaparecer; mudan?as de dire??o deliberadas mudam o alvo.
 
-- Implementa??o inicial: BeamMiningTool, incluindo o Manipulador de Mat?ria.
-  Picaretas SwingableItem, ferramentas Lua personalizadas, armas, constru??o e
-  trava de inimigos n?o recebem sele??o de minera??o. N?o abre automaticamente
-  um t?nel do tamanho do personagem.
+- Ferramentas nativas BeamMiningTool e MiningTool, incluindo itens de mods
+  carregados como `.beamaxe` e `.miningtool`, recebem a mesma assist?ncia.
+  N?o depende do nome do item, tradu??o ou de uma lista de mods.
+  Ferramentas `.activeitem` com minera??o Lua personalizada, armas, constru??o
+  e trava de inimigos n?o recebem sele??o de minera??o por adivinha??o de nome
+  ou tags. Precisam de an?lise do mod para integra??o segura.
+  N?o abre automaticamente um t?nel do tamanho do personagem.
 - Preserva ?rea normal e bloco ?nico. Alcance por centro de tile usa toolRadius;
   a busca n?o ultrapassa 128 blocos / 512 c?lulas, mesmo com mods de alcance.
 - Frente/fundo seguem os comandos j? existentes. Uma a??o simult?nea da outra
@@ -55,6 +58,10 @@ selecionada, sem mostrar a parede do fundo quando a a??o ? na frente.
 5. Testar prote??o, material resistente e alcance de mods: nunca ignorar regras
    de dano. Conferir edi??o e persist?ncia do layout e remapeamento do gamepad.
 6. Conferir pausa, foco, invent?rio, troca de ferramenta e trava de inimigos.
+   Com picareta/broca `.miningtool`, conferir dano, desgaste/durabilidade e
+   cad?ncia normais, inclusive item gasto; repetir com um item de mod de cada
+   tipo. Alternar entre ferramenta compat?vel e `.activeitem`/arma deve deixar
+   os ?ltimos com a mira e fun??es originais.
 7. Conferir visual em cen?rio claro/escuro e com zoom/GUI diferentes.
 
 APK deve ser gerado no GitHub: Release, arm64, system_allocator=true, sem
@@ -83,3 +90,47 @@ A matriz n?o ? link do jogo nem build de APK. Nenhuma execu??o no aparelho,
 medi??o de FPS, compila??o iOS/Switch/Linux/macOS ou execu??o dos runners
 core_tests/game_tests foi realizada. Conforto, legibilidade, sequenciamento em
 multiplayer e ferramentas/mods reais ainda precisam da confer?ncia acima.
+
+## Compatibilidade com os mods informados
+
+A amplia??o usa a capacidade nativa TileMiningTool em MiningTool e
+BeamMiningTool. ItemDatabase carrega `.miningtool` e `.beamaxe` de qualquer
+mod por esses tipos: n?o depende de nome traduzido, itemTags ou uma lista de
+modifica??es. A sele??o direcional e o filtro de ?rea s?o compartilhados.
+MiningTool continua calculando tileDamage/tileDamageBlunted, harvestLevel,
+durabilityPerUse, sons e cad?ncia pelo c?digo anterior; o ramo livre mant?m a
+?rea anterior. init limpa o estado de assist?ncia nos dois tipos.
+
+C?digo p?blico consultado, sem executar ou redistribuir os assets dos mods:
+
+- Frackin' Universe `17868d86c9bb7bc00f92038fb78b48cebd1b41b8`: inclui, por exemplo,
+  `items/tools/miningtools/carbonpickaxe.miningtool`,
+  `bloodstonepickaxe.miningtool`, `obsidianpickaxe.miningtool`,
+  `hellhammer.miningtool` e manipuladores `.beamaxe`. Esses tipos recebem a
+  amplia??o sem editar os assets do mod.
+- O [Mining Laser do FU](https://github.com/sayterdarkwynd/FrackinUniverse/blob/17868d86c9bb7bc00f92038fb78b48cebd1b41b8/items/active/weapons/ranged/unique/miners/minertest/beamfire.lua)
+  j? calcula um raio desde a posi??o do cano, usa lineCollision e gera o
+  proj?til de minera??o no impacto. N?o recebe sele??o adicional da engine;
+  seu funcionamento pr?prio por dire??o fica preservado.
+- Os [lasers do Arcana](https://github.com/sleepySva/sva_arcana/blob/2b7bc3a0b1e32bd0dcb73e2e4042ff8f04f9c409/items/active/unsorted/laserminer/arcana_beammine.lua)
+  usam lineCollision/lineTileCollisionPoint e damageTileArea no impacto, com
+  ?rea, energia, alcance e camada definidos no script. Tamb?m permanecem com
+  seu comportamento original. O bot?o Mine n?o altera esse script nem cria
+  um contorno de ?rea que possa divergir dele.
+- Enhanced Storage, Shellguard, Voyage An Arcana Addon, FU Extraction Patch
+  for Arcana (Fixed) e Patch Project foram identificados pelo nome na captura;
+  n?o houve auditoria completa desses mods nem de seus patches.
+
+A consulta usou o c?digo p?blico dos projetos, n?o os `.pak` do aparelho; as
+vers?es instaladas e patches podem diferir. N?o ? garantia de compatibilidade
+com toda ferramenta ou com todos os mods. N?o foi aplicada detec??o gen?rica
+por palavras como laser/weapon/tool: FU tamb?m tem uma arma Phaser no
+mesmo diret?rio de miners, o que faria esse tipo de palpite afetar combate.
+
+Valida??o da amplia??o: as mesmas **734 / 31.695 / 8.354 / 148 / 102**
+verifica??es de sele??o/gamepad/toque/trava/escala passaram novamente.
+StarMainInterface.cpp, StarTools.cpp e StarItemDatabase.cpp passaram em
+**nove checks**: sintaxe Android arm64/API28/NDK r26d e compila??o de objetos
+Windows launcher e desktop cl?ssico, C++17. `git diff --check` passou.
+Logs locais ignorados: work/validation-mining-mods. Sem link, APK ou teste dos
+mods/aparelho; iOS/Switch/Linux/macOS e runners completos n?o foram validados.

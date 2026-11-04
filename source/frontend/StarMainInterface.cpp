@@ -689,7 +689,7 @@ void MainInterface::preUpdate(float) {
       && (!m_cinematicOverlay || m_cinematicOverlay->completed());
   auto selected = player->handItem(m_targetPreviewAlt ? ToolHand::Alt : ToolHand::Primary);
   if (!selected) selected = player->primaryHandItem();
-  auto mining = as<BeamMiningTool>(selected);
+  auto mining = as<TileMiningTool>(selected);
   if (assisted && mining) {
     auto world = m_client->worldClient();
     auto origin = player->position();
@@ -700,7 +700,7 @@ void MainInterface::preUpdate(float) {
     if (hit.found) m_miningTarget = Vec2F(hit.x + .5f, hit.y + .5f);
   }
   for (auto hand : {ToolHand::Primary, ToolHand::Alt}) {
-    if (auto beam = as<BeamMiningTool>(player->handItem(hand)))
+    if (auto beam = as<TileMiningTool>(player->handItem(hand)))
       beam->setDirectionalMining(assisted, beam == mining && (bool)m_miningTarget,
           m_targetPreviewAlt ? TileLayer::Background : TileLayer::Foreground);
   }
@@ -1756,7 +1756,7 @@ void MainInterface::updateTargetPreview() {
     item = player->handItem(ToolHand::Primary);
   auto material = as<MaterialItem>(item);
   auto object = as<ObjectItem>(item);
-  auto mining = as<BeamMiningTool>(item);
+  auto mining = as<TileMiningTool>(item);
   if (!material && !object && !mining)
     return;
 
